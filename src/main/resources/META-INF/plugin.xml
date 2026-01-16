@@ -1,0 +1,70 @@
+<idea-plugin>
+    <id>com.daggerdiag.plugin</id>
+    <name>Dagger Dependency Visualizer</name>
+    <vendor email="support@daggerdiag.com" url="https://github.com/daggerdiag">Dagger Diag</vendor>
+
+    <description><![CDATA[
+    <h1>Dagger Dependency Visualizer</h1>
+    <p>
+        Visualize and navigate Dagger 2 dependency injection graphs in Kotlin projects.
+        This plugin analyzes your codebase to create interactive diagrams showing:
+    </p>
+    <ul>
+        <li>Component hierarchy and relationships</li>
+        <li>Modules and their provided dependencies</li>
+        <li>Injection points and consumers</li>
+        <li>Dependency chains and scopes</li>
+    </ul>
+    <p>
+        Features:
+    </p>
+    <ul>
+        <li>Interactive graph visualization with clickable nodes</li>
+        <li>Navigate directly to source code from diagram</li>
+        <li>Identify where dependencies are provided and consumed</li>
+        <li>Understand complex Dagger initialization patterns</li>
+    </ul>
+    ]]></description>
+
+    <depends>com.intellij.modules.platform</depends>
+    <depends>com.intellij.modules.java</depends>
+    <depends>org.jetbrains.kotlin</depends>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <!-- Tool Window -->
+        <toolWindow
+                id="Dagger Diagram"
+                anchor="right"
+                factoryClass="com.daggerdiag.toolwindow.DaggerDiagramToolWindowFactory"
+                icon="/icons/dagger_icon.svg"/>
+
+        <!-- Project Service -->
+        <projectService
+                serviceImplementation="com.daggerdiag.services.DaggerAnalysisService"/>
+    </extensions>
+
+    <actions>
+        <action id="DaggerDiag.ShowDiagram"
+                class="com.daggerdiag.actions.ShowDaggerDiagramAction"
+                text="Show Dagger Diagram"
+                description="Generate and display Dagger dependency diagram"
+                icon="/icons/dagger_icon.svg">
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+            <keyboard-shortcut keymap="$default" first-keystroke="ctrl alt D"/>
+        </action>
+
+        <action id="DaggerDiag.AnalyzeFromEditor"
+                class="com.daggerdiag.actions.AnalyzeFromEditorAction"
+                text="Analyze Dagger Component"
+                description="Analyze Dagger component from current file"
+                icon="/icons/dagger_icon.svg">
+            <add-to-group group-id="EditorPopupMenu" anchor="last"/>
+        </action>
+    </actions>
+
+    <projectListeners>
+        <listener
+                class="com.daggerdiag.listeners.DaggerFileChangeListener"
+                topic="com.intellij.openapi.vfs.newvfs.BulkFileListener"/>
+    </projectListeners>
+</idea-plugin>
