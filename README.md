@@ -46,23 +46,19 @@ The plugin analyzes and displays:
 
 ## Installation
 
-### From Source
+### Quick Install
 
-1. Clone this repository:
-   ```bash
-   git clone https://github.com/yourusername/dagger-diag-plugin.git
-   cd dagger-diag-plugin
-   ```
-
-2. Build the plugin:
+1. **Build the plugin** (requires Java 17+ and internet):
    ```bash
    ./gradlew buildPlugin
    ```
 
-3. Install in IntelliJ IDEA:
+2. **Install in IntelliJ IDEA**:
    - Go to `Settings` → `Plugins` → `⚙️` → `Install Plugin from Disk...`
-   - Select the generated ZIP file from `build/distributions/`
+   - Select `build/distributions/dagger-diag-1.0.0.zip`
    - Restart IntelliJ IDEA
+
+**📖 For detailed installation instructions, troubleshooting, and alternative methods, see [INSTALLATION.md](INSTALLATION.md)**
 
 ### From JetBrains Marketplace (Coming Soon)
 
