@@ -1,7 +1,7 @@
 plugins {
     id("java")
-    id("org.jetbrains.kotlin.jvm") version "1.9.21"
-    id("org.jetbrains.intellij") version "1.16.1"
+    id("org.jetbrains.kotlin.jvm") version "2.0.21"
+    id("org.jetbrains.intellij.platform") version "2.1.0"
 }
 
 group = "com.daggerdiag"
@@ -9,23 +9,31 @@ version = "1.0.0"
 
 repositories {
     mavenCentral()
+    intellijPlatform {
+        defaultRepositories()
+    }
 }
 
 dependencies {
+    intellijPlatform {
+        intellijIdeaCommunity("2024.2.4")
+        bundledPlugins("com.intellij.java", "org.jetbrains.kotlin")
+        instrumentationTools()
+    }
+
     implementation("org.jetbrains.kotlin:kotlin-stdlib")
-    implementation("com.google.code.gson:gson:2.10.1")
-
-    // For graph visualization
-    implementation("org.jgrapht:jgrapht-core:1.5.2")
-    implementation("org.jgrapht:jgrapht-io:1.5.2")
-
-    testImplementation("junit:junit:4.13.2")
 }
 
-intellij {
-    version.set("2023.2.5")
-    type.set("IC") // IntelliJ IDEA Community Edition
-    plugins.set(listOf("java", "org.jetbrains.kotlin"))
+intellijPlatform {
+    buildSearchableOptions = false
+    instrumentCode = false
+
+    pluginConfiguration {
+        ideaVersion {
+            sinceBuild = "242"
+            untilBuild = provider { null }  // Support all future versions
+        }
+    }
 }
 
 tasks {
@@ -39,8 +47,8 @@ tasks {
     }
 
     patchPluginXml {
-        sinceBuild.set("232")
-        untilBuild.set("241.*")
+        sinceBuild.set("242")
+        untilBuild.set("")  // Empty string = no upper limit
     }
 
     signPlugin {

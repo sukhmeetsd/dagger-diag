@@ -10,7 +10,7 @@ Before you begin, make sure you have:
 
 - **Internet connection** (for downloading dependencies)
 
-- **IntelliJ IDEA 2023.2 or later**
+- **IntelliJ IDEA 2024.2 or later**
   - Download from: https://www.jetbrains.com/idea/download/
 
 ## Step 1: Clone the Repository
@@ -196,8 +196,8 @@ export PUBLISH_TOKEN="<your-token>"
 
 - **Operating System**: Windows, macOS, or Linux
 - **JDK**: 17 or later
-- **IntelliJ IDEA**: 2023.2 or later (Community or Ultimate)
-- **Disk Space**: ~100MB for the plugin and dependencies
+- **IntelliJ IDEA**: 2024.2 or later (Community or Ultimate)
+- **Disk Space**: ~50MB for the plugin
 - **RAM**: 2GB minimum (for IntelliJ, plugin is lightweight)
 
 ## Supported Dagger Versions

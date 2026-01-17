@@ -233,7 +233,7 @@ When you click a node:
 
 ## Requirements
 
-- IntelliJ IDEA 2023.2 or later
+- IntelliJ IDEA 2024.2 or later (including 2025.x versions)
 - Kotlin plugin enabled
 - Project using Dagger 2
 
