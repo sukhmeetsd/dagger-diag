@@ -2,37 +2,36 @@ package com.daggerdiag.analyzers
 
 import com.daggerdiag.models.*
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.psi.*
+import com.intellij.psi.search.FileTypeIndex
 import com.intellij.psi.search.GlobalSearchScope
-import com.intellij.psi.search.searches.AnnotatedElementsSearch
 import com.intellij.psi.util.PsiTreeUtil
-import org.jetbrains.kotlin.idea.base.util.projectScope
+import org.jetbrains.kotlin.idea.KotlinFileType
 import org.jetbrains.kotlin.psi.*
-import org.jetbrains.kotlin.asJava.toLightClass
-import org.jetbrains.kotlin.asJava.toLightElements
-import org.jetbrains.kotlin.idea.refactoring.fqName.fqName
 
 /**
  * Analyzes a project to extract Dagger dependency information
+ * Compatible with Kotlin K2 mode
  */
 class DaggerAnalyzer(private val project: Project) {
 
     companion object {
         // Dagger annotation names
-        private const val COMPONENT_ANNOTATION = "dagger.Component"
-        private const val MODULE_ANNOTATION = "dagger.Module"
-        private const val PROVIDES_ANNOTATION = "dagger.Provides"
-        private const val INJECT_ANNOTATION = "javax.inject.Inject"
-        private const val SUBCOMPONENT_ANNOTATION = "dagger.Subcomponent"
-        private const val BINDS_ANNOTATION = "dagger.Binds"
+        private const val COMPONENT_ANNOTATION = "Component"
+        private const val MODULE_ANNOTATION = "Module"
+        private const val PROVIDES_ANNOTATION = "Provides"
+        private const val INJECT_ANNOTATION = "Inject"
+        private const val SUBCOMPONENT_ANNOTATION = "Subcomponent"
+        private const val BINDS_ANNOTATION = "Binds"
 
         // Qualifier annotations
-        private const val NAMED_ANNOTATION = "javax.inject.Named"
-        private const val QUALIFIER_ANNOTATION = "javax.inject.Qualifier"
+        private const val NAMED_ANNOTATION = "Named"
+        private const val QUALIFIER_ANNOTATION = "Qualifier"
 
         // Scope annotations
-        private const val SINGLETON_ANNOTATION = "javax.inject.Singleton"
-        private const val SCOPE_ANNOTATION = "javax.inject.Scope"
+        private const val SINGLETON_ANNOTATION = "Singleton"
+        private const val SCOPE_ANNOTATION = "Scope"
     }
 
     /**
@@ -45,11 +44,39 @@ class DaggerAnalyzer(private val project: Project) {
         val injections = mutableListOf<InjectionNode>()
         val edges = mutableListOf<DaggerEdge>()
 
-        // Find all Dagger components
-        findComponents().forEach { component ->
-            components.add(component)
+        // Find all Kotlin files in the project
+        val kotlinFiles = findKotlinFiles()
 
-            // Add edges from component to its modules
+        // Find all Dagger components
+        kotlinFiles.forEach { file ->
+            findComponentsInFile(file).forEach { component ->
+                components.add(component)
+            }
+        }
+
+        // Find all Dagger modules
+        kotlinFiles.forEach { file ->
+            findModulesInFile(file).forEach { module ->
+                modules.add(module)
+                provisions.addAll(module.provides)
+
+                // Add edges for module includes
+                module.includes.forEach { includedModuleFqn ->
+                    val includedModule = modules.find { it.qualifiedName == includedModuleFqn }
+                    if (includedModule != null) {
+                        edges.add(DaggerEdge(module, includedModule, EdgeType.MODULE_INCLUDES))
+                    }
+                }
+
+                // Add edges for provisions
+                module.provides.forEach { provision ->
+                    edges.add(DaggerEdge(module, provision, EdgeType.PROVIDES_DEPENDENCY, provision.returnType))
+                }
+            }
+        }
+
+        // Add edges from components to modules
+        components.forEach { component ->
             component.modules.forEach { moduleFqn ->
                 val module = modules.find { it.qualifiedName == moduleFqn }
                 if (module != null) {
@@ -58,27 +85,10 @@ class DaggerAnalyzer(private val project: Project) {
             }
         }
 
-        // Find all Dagger modules
-        findModules().forEach { module ->
-            modules.add(module)
-            provisions.addAll(module.provides)
-
-            // Add edges for module includes
-            module.includes.forEach { includedModuleFqn ->
-                val includedModule = modules.find { it.qualifiedName == includedModuleFqn }
-                if (includedModule != null) {
-                    edges.add(DaggerEdge(module, includedModule, EdgeType.MODULE_INCLUDES))
-                }
-            }
-
-            // Add edges for provisions
-            module.provides.forEach { provision ->
-                edges.add(DaggerEdge(module, provision, EdgeType.PROVIDES_DEPENDENCY, provision.returnType))
-            }
-        }
-
         // Find all injection points
-        injections.addAll(findInjectionPoints())
+        kotlinFiles.forEach { file ->
+            injections.addAll(findInjectionPointsInFile(file))
+        }
 
         // Build dependency edges (provision -> injection)
         buildDependencyEdges(provisions, injections, edges)
@@ -87,24 +97,34 @@ class DaggerAnalyzer(private val project: Project) {
     }
 
     /**
-     * Find all @Component annotated classes
+     * Find all Kotlin files in the project
      */
-    private fun findComponents(): List<ComponentNode> {
+    private fun findKotlinFiles(): List<KtFile> {
+        val kotlinFiles = mutableListOf<KtFile>()
+        val scope = GlobalSearchScope.projectScope(project)
+        val virtualFiles = FileTypeIndex.getFiles(KotlinFileType.INSTANCE, scope)
+
+        virtualFiles.forEach { virtualFile ->
+            val psiFile = PsiManager.getInstance(project).findFile(virtualFile)
+            if (psiFile is KtFile) {
+                kotlinFiles.add(psiFile)
+            }
+        }
+
+        return kotlinFiles
+    }
+
+    /**
+     * Find all @Component annotated classes in a file
+     */
+    private fun findComponentsInFile(file: KtFile): List<ComponentNode> {
         val components = mutableListOf<ComponentNode>()
 
-        val scope = GlobalSearchScope.projectScope(project)
-        val ktFiles = PsiTreeUtil.findChildrenOfType(
-            PsiManager.getInstance(project).findDirectory(project.baseDir),
-            KtFile::class.java
-        )
-
-        ktFiles.forEach { file ->
-            file.declarations.filterIsInstance<KtClass>().forEach { ktClass ->
-                ktClass.annotationEntries.forEach { annotation ->
-                    val fqName = annotation.typeReference?.text
-                    if (fqName?.contains("Component") == true) {
-                        components.add(parseComponent(ktClass))
-                    }
+        file.declarations.filterIsInstance<KtClass>().forEach { ktClass ->
+            ktClass.annotationEntries.forEach { annotation ->
+                val annotationName = annotation.shortName?.asString()
+                if (annotationName?.contains(COMPONENT_ANNOTATION) == true) {
+                    components.add(parseComponent(ktClass))
                 }
             }
         }
@@ -117,7 +137,7 @@ class DaggerAnalyzer(private val project: Project) {
      */
     private fun parseComponent(ktClass: KtClass): ComponentNode {
         val name = ktClass.name ?: "Unknown"
-        val qualifiedName = ktClass.fqName?.asString() ?: name
+        val qualifiedName = getQualifiedName(ktClass) ?: name
         val filePath = ktClass.containingFile.virtualFile?.path
         val lineNumber = getLineNumber(ktClass)
 
@@ -127,7 +147,7 @@ class DaggerAnalyzer(private val project: Project) {
 
         // Extract modules from annotation
         ktClass.annotationEntries.forEach { annotation ->
-            if (annotation.shortName?.asString()?.contains("Component") == true) {
+            if (annotation.shortName?.asString()?.contains(COMPONENT_ANNOTATION) == true) {
                 annotation.valueArguments.forEach { arg ->
                     when (arg.getArgumentName()?.asName?.asString()) {
                         "modules" -> {
@@ -152,22 +172,15 @@ class DaggerAnalyzer(private val project: Project) {
     }
 
     /**
-     * Find all @Module annotated classes
+     * Find all @Module annotated classes in a file
      */
-    private fun findModules(): List<ModuleNode> {
+    private fun findModulesInFile(file: KtFile): List<ModuleNode> {
         val modules = mutableListOf<ModuleNode>()
 
-        val ktFiles = PsiTreeUtil.findChildrenOfType(
-            PsiManager.getInstance(project).findDirectory(project.baseDir),
-            KtFile::class.java
-        )
-
-        ktFiles.forEach { file ->
-            file.declarations.filterIsInstance<KtClass>().forEach { ktClass ->
-                ktClass.annotationEntries.forEach { annotation ->
-                    if (annotation.shortName?.asString()?.contains("Module") == true) {
-                        modules.add(parseModule(ktClass))
-                    }
+        file.declarations.filterIsInstance<KtClass>().forEach { ktClass ->
+            ktClass.annotationEntries.forEach { annotation ->
+                if (annotation.shortName?.asString()?.contains(MODULE_ANNOTATION) == true) {
+                    modules.add(parseModule(ktClass))
                 }
             }
         }
@@ -180,7 +193,7 @@ class DaggerAnalyzer(private val project: Project) {
      */
     private fun parseModule(ktClass: KtClass): ModuleNode {
         val name = ktClass.name ?: "Unknown"
-        val qualifiedName = ktClass.fqName?.asString() ?: name
+        val qualifiedName = getQualifiedName(ktClass) ?: name
         val filePath = ktClass.containingFile.virtualFile?.path
         val lineNumber = getLineNumber(ktClass)
 
@@ -189,7 +202,7 @@ class DaggerAnalyzer(private val project: Project) {
 
         // Extract includes from annotation
         ktClass.annotationEntries.forEach { annotation ->
-            if (annotation.shortName?.asString() == "Module") {
+            if (annotation.shortName?.asString() == MODULE_ANNOTATION) {
                 annotation.valueArguments.forEach { arg ->
                     if (arg.getArgumentName()?.asName?.asString() == "includes") {
                         extractClassReferences(arg.getArgumentExpression()).forEach {
@@ -204,7 +217,7 @@ class DaggerAnalyzer(private val project: Project) {
         ktClass.declarations.filterIsInstance<KtNamedFunction>().forEach { function ->
             function.annotationEntries.forEach { annotation ->
                 val annotationName = annotation.shortName?.asString()
-                if (annotationName == "Provides" || annotationName == "Binds") {
+                if (annotationName == PROVIDES_ANNOTATION || annotationName == BINDS_ANNOTATION) {
                     provides.add(parseProvision(function))
                 }
             }
@@ -218,7 +231,7 @@ class DaggerAnalyzer(private val project: Project) {
      */
     private fun parseProvision(function: KtNamedFunction): ProvisionNode {
         val name = function.name ?: "Unknown"
-        val qualifiedName = function.fqName?.asString() ?: name
+        val qualifiedName = getQualifiedName(function) ?: name
         val filePath = function.containingFile.virtualFile?.path
         val lineNumber = getLineNumber(function)
 
@@ -243,69 +256,62 @@ class DaggerAnalyzer(private val project: Project) {
     }
 
     /**
-     * Find all @Inject annotated fields and constructors
+     * Find all @Inject annotated fields and constructors in a file
      */
-    private fun findInjectionPoints(): List<InjectionNode> {
+    private fun findInjectionPointsInFile(file: KtFile): List<InjectionNode> {
         val injections = mutableListOf<InjectionNode>()
 
-        val ktFiles = PsiTreeUtil.findChildrenOfType(
-            PsiManager.getInstance(project).findDirectory(project.baseDir),
-            KtFile::class.java
-        )
+        file.declarations.filterIsInstance<KtClass>().forEach { ktClass ->
+            val className = getQualifiedName(ktClass) ?: ktClass.name ?: "Unknown"
 
-        ktFiles.forEach { file ->
-            file.declarations.filterIsInstance<KtClass>().forEach { ktClass ->
-                val className = ktClass.fqName?.asString() ?: ktClass.name ?: "Unknown"
+            // Check constructor injection
+            ktClass.primaryConstructor?.annotationEntries?.forEach { annotation ->
+                if (annotation.shortName?.asString() == INJECT_ANNOTATION) {
+                    ktClass.primaryConstructor?.valueParameters?.forEach { param ->
+                        val paramName = param.name ?: "unknown"
+                        val paramType = param.typeReference?.text ?: "Unknown"
+                        val qualifier = findQualifier(param)
+                        val filePath = param.containingFile.virtualFile?.path
+                        val lineNumber = getLineNumber(param)
 
-                // Check constructor injection
-                ktClass.primaryConstructor?.annotationEntries?.forEach { annotation ->
-                    if (annotation.shortName?.asString() == "Inject") {
-                        ktClass.primaryConstructor?.valueParameters?.forEach { param ->
-                            val paramName = param.name ?: "unknown"
-                            val paramType = param.typeReference?.text ?: "Unknown"
-                            val qualifier = findQualifier(param)
-                            val filePath = param.containingFile.virtualFile?.path
-                            val lineNumber = getLineNumber(param)
-
-                            injections.add(
-                                InjectionNode(
-                                    paramName,
-                                    "$className.$paramName",
-                                    param,
-                                    filePath,
-                                    lineNumber,
-                                    paramType,
-                                    qualifier,
-                                    className
-                                )
+                        injections.add(
+                            InjectionNode(
+                                paramName,
+                                "$className.$paramName",
+                                param,
+                                filePath,
+                                lineNumber,
+                                paramType,
+                                qualifier,
+                                className
                             )
-                        }
+                        )
                     }
                 }
+            }
 
-                // Check field injection
-                ktClass.declarations.filterIsInstance<KtProperty>().forEach { property ->
-                    property.annotationEntries.forEach { annotation ->
-                        if (annotation.shortName?.asString() == "Inject") {
-                            val propName = property.name ?: "unknown"
-                            val propType = property.typeReference?.text ?: "Unknown"
-                            val qualifier = findQualifier(property)
-                            val filePath = property.containingFile.virtualFile?.path
-                            val lineNumber = getLineNumber(property)
+            // Check field injection
+            ktClass.declarations.filterIsInstance<KtProperty>().forEach { property ->
+                property.annotationEntries.forEach { annotation ->
+                    if (annotation.shortName?.asString() == INJECT_ANNOTATION) {
+                        val propName = property.name ?: "unknown"
+                        val propType = property.typeReference?.text ?: "Unknown"
+                        val qualifier = findQualifier(property)
+                        val filePath = property.containingFile.virtualFile?.path
+                        val lineNumber = getLineNumber(property)
 
-                            injections.add(
-                                InjectionNode(
-                                    propName,
-                                    "$className.$propName",
-                                    property,
-                                    filePath,
-                                    lineNumber,
-                                    propType,
-                                    qualifier,
-                                    className
-                                )
+                        injections.add(
+                            InjectionNode(
+                                propName,
+                                "$className.$propName",
+                                property,
+                                filePath,
+                                lineNumber,
+                                propType,
+                                qualifier,
+                                className
                             )
-                        }
+                        )
                     }
                 }
             }
@@ -367,7 +373,7 @@ class DaggerAnalyzer(private val project: Project) {
     private fun findScope(element: KtAnnotated): String? {
         element.annotationEntries.forEach { annotation ->
             val name = annotation.shortName?.asString()
-            if (name == "Singleton" || name?.endsWith("Scope") == true) {
+            if (name == SINGLETON_ANNOTATION || name?.endsWith("Scope") == true) {
                 return name
             }
         }
@@ -380,18 +386,46 @@ class DaggerAnalyzer(private val project: Project) {
     private fun findQualifier(element: KtAnnotated): String? {
         element.annotationEntries.forEach { annotation ->
             val name = annotation.shortName?.asString()
-            if (name == "Named") {
+            if (name == NAMED_ANNOTATION) {
                 // Extract value from @Named annotation
                 annotation.valueArguments.firstOrNull()?.let { arg ->
                     return arg.getArgumentExpression()?.text?.trim('"')
                 }
             }
             // Check for custom qualifiers
-            if (name != null && name != "Inject" && name != "Provides") {
+            if (name != null && name != INJECT_ANNOTATION && name != PROVIDES_ANNOTATION) {
                 return name
             }
         }
         return null
+    }
+
+    /**
+     * Get qualified name of a PSI element (K2-compatible)
+     */
+    private fun getQualifiedName(element: PsiElement): String? {
+        return when (element) {
+            is KtClass -> {
+                val packageName = (element.containingFile as? KtFile)?.packageFqName?.asString()
+                val className = element.name
+                if (packageName != null && className != null) {
+                    "$packageName.$className"
+                } else {
+                    className
+                }
+            }
+            is KtNamedFunction -> {
+                val containingClass = PsiTreeUtil.getParentOfType(element, KtClass::class.java)
+                val classQualifiedName = containingClass?.let { getQualifiedName(it) }
+                val functionName = element.name
+                if (classQualifiedName != null && functionName != null) {
+                    "$classQualifiedName.$functionName"
+                } else {
+                    functionName
+                }
+            }
+            else -> null
+        }
     }
 
     /**
