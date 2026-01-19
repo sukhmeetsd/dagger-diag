@@ -31,6 +31,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - Extended version compatibility to support IntelliJ 2024.2 through 2025.3 and all future versions
+- **Fixed Kotlin K2 mode compatibility** - Plugin now works with IntelliJ 2025.x's default K2 compiler
+- Removed K1-specific API dependencies for better forward compatibility
 - Reduced build download size from ~1GB to ~600MB
 - Optimized build configuration for faster compilation
 
@@ -41,6 +43,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Plugin size: ~50MB (reduced from ~100MB)
 - Kotlin version: 2.0.21
 - IntelliJ Platform Gradle Plugin: 2.1.0
+- **Kotlin K2 mode: Fully compatible** (works with both K1 and K2 compiler modes)
 
 ## [Unreleased]
 
