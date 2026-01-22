@@ -2,7 +2,10 @@ package com.daggerdiag.analyzers
 
 import com.daggerdiag.models.*
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.roots.ProjectRootManager
+import com.intellij.openapi.vfs.VfsUtilCore
 import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.openapi.vfs.VirtualFileVisitor
 import com.intellij.psi.*
 import com.intellij.psi.search.FileTypeIndex
 import com.intellij.psi.search.GlobalSearchScope
@@ -101,17 +104,73 @@ class DaggerAnalyzer(private val project: Project) {
      */
     private fun findKotlinFiles(): List<KtFile> {
         val kotlinFiles = mutableListOf<KtFile>()
-        val scope = GlobalSearchScope.projectScope(project)
-        val virtualFiles = FileTypeIndex.getFiles(KotlinFileType.INSTANCE, scope)
+        val psiManager = PsiManager.getInstance(project)
 
-        virtualFiles.forEach { virtualFile ->
-            val psiFile = PsiManager.getInstance(project).findFile(virtualFile)
-            if (psiFile is KtFile) {
-                kotlinFiles.add(psiFile)
+        // Try multiple approaches to find Kotlin files
+
+        // Approach 1: Use FileTypeIndex with allScope (includes all project content)
+        try {
+            val allScope = GlobalSearchScope.allScope(project)
+            val indexedFiles = FileTypeIndex.getFiles(KotlinFileType.INSTANCE, allScope)
+            indexedFiles.forEach { virtualFile ->
+                val psiFile = psiManager.findFile(virtualFile)
+                if (psiFile is KtFile && !kotlinFiles.contains(psiFile)) {
+                    kotlinFiles.add(psiFile)
+                }
+            }
+        } catch (e: Exception) {
+            // Fallback if FileTypeIndex fails
+        }
+
+        // Approach 2: Traverse project content roots directly
+        if (kotlinFiles.isEmpty()) {
+            val projectRootManager = ProjectRootManager.getInstance(project)
+
+            // Search in content roots
+            projectRootManager.contentRoots.forEach { contentRoot ->
+                findKotlinFilesInDirectory(contentRoot, psiManager, kotlinFiles)
+            }
+
+            // Also search in source roots
+            projectRootManager.contentSourceRoots.forEach { sourceRoot ->
+                findKotlinFilesInDirectory(sourceRoot, psiManager, kotlinFiles)
             }
         }
 
-        return kotlinFiles
+        // Approach 3: If still empty, try searching from project base directory
+        if (kotlinFiles.isEmpty()) {
+            project.basePath?.let { basePath ->
+                val baseDir = com.intellij.openapi.vfs.LocalFileSystem.getInstance().findFileByPath(basePath)
+                baseDir?.let { findKotlinFilesInDirectory(it, psiManager, kotlinFiles) }
+            }
+        }
+
+        return kotlinFiles.distinctBy { it.virtualFilePath }
+    }
+
+    /**
+     * Recursively find Kotlin files in a directory
+     */
+    private fun findKotlinFilesInDirectory(
+        directory: VirtualFile,
+        psiManager: PsiManager,
+        kotlinFiles: MutableList<KtFile>
+    ) {
+        VfsUtilCore.visitChildrenRecursively(directory, object : VirtualFileVisitor<Unit>() {
+            override fun visitFile(file: VirtualFile): Boolean {
+                if (!file.isDirectory && file.extension == "kt") {
+                    val psiFile = psiManager.findFile(file)
+                    if (psiFile is KtFile) {
+                        kotlinFiles.add(psiFile)
+                    }
+                }
+                // Skip build directories and hidden directories
+                if (file.isDirectory && (file.name == "build" || file.name.startsWith("."))) {
+                    return false
+                }
+                return true
+            }
+        })
     }
 
     /**
