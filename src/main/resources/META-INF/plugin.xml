@@ -43,6 +43,11 @@
                 serviceImplementation="com.daggerdiag.services.DaggerAnalysisService"/>
     </extensions>
 
+    <!-- Declare Kotlin K2 mode compatibility -->
+    <extensions defaultExtensionNs="org.jetbrains.kotlin">
+        <supportsKotlinPluginMode supportsK2="true" supportsK1="true"/>
+    </extensions>
+
     <actions>
         <action id="DaggerDiag.ShowDiagram"
                 class="com.daggerdiag.actions.ShowDaggerDiagramAction"
