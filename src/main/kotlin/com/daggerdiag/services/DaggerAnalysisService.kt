@@ -5,6 +5,7 @@ import com.daggerdiag.models.DaggerGraph
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.ReadAction
 import java.util.concurrent.CompletableFuture
 
 /**
@@ -44,8 +45,11 @@ class DaggerAnalysisService(private val project: Project) {
 
         ApplicationManager.getApplication().executeOnPooledThread {
             try {
-                val analyzer = DaggerAnalyzer(project)
-                val graph = analyzer.analyze()
+                // PSI access must be wrapped in a ReadAction
+                val graph = ReadAction.compute<DaggerGraph, Exception> {
+                    val analyzer = DaggerAnalyzer(project)
+                    analyzer.analyze()
+                }
                 cachedGraph = graph
                 future.complete(graph)
             } catch (e: Exception) {
