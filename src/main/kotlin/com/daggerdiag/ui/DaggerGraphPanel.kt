@@ -1,233 +1,349 @@
 package com.daggerdiag.ui
 
 import com.daggerdiag.models.*
+import com.intellij.openapi.editor.LogicalPosition
 import com.intellij.openapi.fileEditor.FileEditorManager
+import com.intellij.openapi.fileEditor.OpenFileDescriptor
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.ui.JBColor
 import com.intellij.ui.components.JBScrollPane
 import java.awt.*
-import java.awt.event.MouseAdapter
-import java.awt.event.MouseEvent
-import java.awt.geom.Ellipse2D
-import java.awt.geom.Rectangle2D
+import java.awt.event.*
+import java.awt.geom.*
 import javax.swing.JPanel
-import kotlin.math.cos
-import kotlin.math.sin
-import kotlin.math.PI
+import javax.swing.ToolTipManager
+import kotlin.math.*
 
 /**
- * Custom panel for rendering Dagger dependency graph
+ * Custom panel for rendering Dagger dependency graph with zoom, pan, and improved layout
+ * Prepared for future drag-and-drop functionality
  */
 class DaggerGraphPanel(
     private val project: Project,
     private val graph: DaggerGraph
 ) : JPanel() {
 
-    private val nodePositions = mutableMapOf<DaggerNode, Point>()
+    // Node positioning and rendering
+    private val nodePositions = mutableMapOf<DaggerNode, Point2D.Double>()
     private val nodeShapes = mutableMapOf<DaggerNode, Shape>()
     private var hoveredNode: DaggerNode? = null
     private var selectedNode: DaggerNode? = null
 
+    // Zoom and pan state
+    private var zoomLevel = 1.0
+    private var panX = 0.0
+    private var panY = 0.0
+    private var lastMousePoint: Point? = null
+    private var isPanning = false
+
+    // Layout parameters (dynamic based on graph size)
+    private var nodeRadius = 60.0
+    private var horizontalSpacing = 200.0
+    private var verticalSpacing = 180.0
+    private val padding = 150.0
+
     companion object {
-        private const val NODE_RADIUS = 50
-        private const val NODE_SPACING = 150
-        private const val PADDING = 100
+        private const val MIN_ZOOM = 0.1
+        private const val MAX_ZOOM = 3.0
+        private const val ZOOM_STEP = 0.1
 
         private val COMPONENT_COLOR = JBColor(Color(108, 158, 248), Color(72, 118, 208))
         private val MODULE_COLOR = JBColor(Color(102, 187, 106), Color(62, 147, 66))
         private val PROVISION_COLOR = JBColor(Color(255, 167, 38), Color(215, 127, 0))
         private val INJECTION_COLOR = JBColor(Color(239, 83, 80), Color(199, 43, 40))
-        private val EDGE_COLOR = JBColor(Color(150, 150, 150), Color(100, 100, 100))
+        private val EDGE_COLOR = JBColor(Color(150, 150, 150, 128), Color(100, 100, 100, 128))
         private val HOVER_COLOR = JBColor(Color(255, 235, 59), Color(215, 195, 19))
         private val SELECTED_COLOR = JBColor(Color(33, 150, 243), Color(13, 110, 203))
+        private val TEXT_BACKGROUND = JBColor(Color(255, 255, 255, 220), Color(60, 63, 65, 220))
     }
 
     init {
         background = JBColor.background()
+
+        // Enable tooltips
+        ToolTipManager.sharedInstance().registerComponent(this)
+
+        // Calculate optimal layout
+        calculateDynamicSpacing()
         calculateLayout()
-        addMouseListener(object : MouseAdapter() {
-            override fun mouseClicked(e: MouseEvent) {
-                handleClick(e.point)
-            }
 
-            override fun mouseMoved(e: MouseEvent) {
-                handleHover(e.point)
-            }
-        })
-
-        addMouseMotionListener(object : MouseAdapter() {
-            override fun mouseMoved(e: MouseEvent) {
-                handleHover(e.point)
-            }
-        })
+        // Mouse listeners for interaction
+        setupMouseListeners()
     }
 
     /**
-     * Calculate layout positions for all nodes
+     * Calculate spacing based on graph size to avoid congestion
+     */
+    private fun calculateDynamicSpacing() {
+        val totalNodes = graph.components.size + graph.modules.size +
+                        graph.provisions.size + graph.injections.size
+
+        when {
+            totalNodes > 100 -> {
+                nodeRadius = 45.0
+                horizontalSpacing = 150.0
+                verticalSpacing = 140.0
+            }
+            totalNodes > 50 -> {
+                nodeRadius = 50.0
+                horizontalSpacing = 170.0
+                verticalSpacing = 160.0
+            }
+            totalNodes > 20 -> {
+                nodeRadius = 55.0
+                horizontalSpacing = 190.0
+                verticalSpacing = 170.0
+            }
+            else -> {
+                nodeRadius = 60.0
+                horizontalSpacing = 220.0
+                verticalSpacing = 180.0
+            }
+        }
+    }
+
+    /**
+     * Calculate improved hierarchical layout
      */
     private fun calculateLayout() {
-        val allNodes = mutableListOf<DaggerNode>()
-        allNodes.addAll(graph.components)
-        allNodes.addAll(graph.modules)
-        allNodes.addAll(graph.provisions)
-        allNodes.addAll(graph.injections)
-
+        val allNodes = graph.components + graph.modules + graph.provisions + graph.injections
         if (allNodes.isEmpty()) return
 
-        // Use a hierarchical layout
-        var currentY = PADDING
-        var currentX = PADDING
+        var currentY = padding
 
-        // Layout components at the top
-        graph.components.forEachIndexed { index, component ->
-            val x = PADDING + (index % 3) * (NODE_SPACING * 2)
-            val y = currentY + (index / 3) * (NODE_SPACING * 2)
-            nodePositions[component] = Point(x, y)
-        }
-
+        // Layer 1: Components (top)
         if (graph.components.isNotEmpty()) {
-            currentY += ((graph.components.size + 2) / 3) * (NODE_SPACING * 2) + NODE_SPACING
+            val componentsPerRow = max(1, ceil(sqrt(graph.components.size.toDouble())).toInt())
+            graph.components.forEachIndexed { index, component ->
+                val col = index % componentsPerRow
+                val row = index / componentsPerRow
+                val x = padding + col * horizontalSpacing * 1.5
+                val y = currentY + row * verticalSpacing * 1.2
+                nodePositions[component] = Point2D.Double(x, y)
+            }
+            currentY += (ceil(graph.components.size.toDouble() / componentsPerRow) * verticalSpacing * 1.2) + verticalSpacing
         }
 
-        // Layout modules below components
-        graph.modules.forEachIndexed { index, module ->
-            val x = PADDING + (index % 4) * (NODE_SPACING + 80)
-            val y = currentY + (index / 4) * NODE_SPACING
-            nodePositions[module] = Point(x, y)
-        }
-
+        // Layer 2: Modules
         if (graph.modules.isNotEmpty()) {
-            currentY += ((graph.modules.size + 3) / 4) * NODE_SPACING + NODE_SPACING
+            val modulesPerRow = max(1, min(6, ceil(sqrt(graph.modules.size.toDouble() * 1.5)).toInt()))
+            graph.modules.forEachIndexed { index, module ->
+                val col = index % modulesPerRow
+                val row = index / modulesPerRow
+                val x = padding + col * horizontalSpacing
+                val y = currentY + row * verticalSpacing
+                nodePositions[module] = Point2D.Double(x, y)
+            }
+            currentY += (ceil(graph.modules.size.toDouble() / modulesPerRow) * verticalSpacing) + verticalSpacing * 1.5
         }
 
-        // Layout provisions below modules
-        graph.provisions.forEachIndexed { index, provision ->
-            val x = PADDING + (index % 5) * 140
-            val y = currentY + (index / 5) * 120
-            nodePositions[provision] = Point(x, y)
-        }
-
+        // Layer 3: Provisions (can be many - use more columns)
         if (graph.provisions.isNotEmpty()) {
-            currentY += ((graph.provisions.size + 4) / 5) * 120 + NODE_SPACING
+            val provisionsPerRow = max(1, min(8, ceil(sqrt(graph.provisions.size.toDouble() * 2)).toInt()))
+            graph.provisions.forEachIndexed { index, provision ->
+                val col = index % provisionsPerRow
+                val row = index / provisionsPerRow
+                val x = padding + col * horizontalSpacing * 0.9
+                val y = currentY + row * verticalSpacing * 0.85
+                nodePositions[provision] = Point2D.Double(x, y)
+            }
+            currentY += (ceil(graph.provisions.size.toDouble() / provisionsPerRow) * verticalSpacing * 0.85) + verticalSpacing * 1.5
         }
 
-        // Layout injections at the bottom
-        graph.injections.forEachIndexed { index, injection ->
-            val x = PADDING + (index % 6) * 120
-            val y = currentY + (index / 6) * 100
-            nodePositions[injection] = Point(x, y)
+        // Layer 4: Injections (bottom)
+        if (graph.injections.isNotEmpty()) {
+            val injectionsPerRow = max(1, min(8, ceil(sqrt(graph.injections.size.toDouble() * 2)).toInt()))
+            graph.injections.forEachIndexed { index, injection ->
+                val col = index % injectionsPerRow
+                val row = index / injectionsPerRow
+                val x = padding + col * horizontalSpacing * 0.9
+                val y = currentY + row * verticalSpacing * 0.85
+                nodePositions[injection] = Point2D.Double(x, y)
+            }
+            currentY += (ceil(graph.injections.size.toDouble() / injectionsPerRow) * verticalSpacing * 0.85) + padding
         }
 
-        // Calculate preferred size
-        val maxX = nodePositions.values.maxOfOrNull { it.x } ?: 800
-        val maxY = nodePositions.values.maxOfOrNull { it.y } ?: 600
-        preferredSize = Dimension(maxX + PADDING * 2, maxY + PADDING * 2)
+        // Calculate canvas size
+        val maxX = nodePositions.values.maxOfOrNull { it.x } ?: 1000.0
+        val maxY = nodePositions.values.maxOfOrNull { it.y } ?: 1000.0
+        preferredSize = Dimension((maxX + padding * 2).toInt(), (maxY + padding * 2).toInt())
+    }
+
+    /**
+     * Setup mouse listeners for zoom, pan, and interaction
+     */
+    private fun setupMouseListeners() {
+        // Mouse wheel for zooming
+        addMouseWheelListener { e ->
+            val oldZoom = zoomLevel
+            if (e.wheelRotation < 0) {
+                zoomLevel = min(MAX_ZOOM, zoomLevel + ZOOM_STEP)
+            } else {
+                zoomLevel = max(MIN_ZOOM, zoomLevel - ZOOM_STEP)
+            }
+
+            // Zoom towards mouse position
+            if (zoomLevel != oldZoom) {
+                val scale = zoomLevel / oldZoom
+                panX = e.x - scale * (e.x - panX)
+                panY = e.y - scale * (e.y - panY)
+                repaint()
+            }
+        }
+
+        // Mouse drag for panning
+        val mouseAdapter = object : MouseAdapter() {
+            override fun mousePressed(e: MouseEvent) {
+                if (e.button == MouseEvent.BUTTON2 || e.button == MouseEvent.BUTTON1 && e.isControlDown) {
+                    // Middle mouse or Ctrl+Left mouse for panning
+                    isPanning = true
+                    lastMousePoint = e.point
+                    cursor = Cursor.getPredefinedCursor(Cursor.MOVE_CURSOR)
+                } else if (e.button == MouseEvent.BUTTON1) {
+                    // Left click for selection
+                    handleClick(e.point)
+                }
+            }
+
+            override fun mouseReleased(e: MouseEvent) {
+                if (isPanning) {
+                    isPanning = false
+                    lastMousePoint = null
+                    cursor = Cursor.getDefaultCursor()
+                }
+            }
+
+            override fun mouseDragged(e: MouseEvent) {
+                if (isPanning && lastMousePoint != null) {
+                    val dx = e.x - lastMousePoint!!.x
+                    val dy = e.y - lastMousePoint!!.y
+                    panX += dx
+                    panY += dy
+                    lastMousePoint = e.point
+                    repaint()
+                }
+                // TODO: Add node dragging here in future
+            }
+
+            override fun mouseMoved(e: MouseEvent) {
+                handleHover(e.point)
+            }
+        }
+
+        addMouseListener(mouseAdapter)
+        addMouseMotionListener(mouseAdapter)
     }
 
     override fun paintComponent(g: Graphics) {
         super.paintComponent(g)
         val g2d = g as Graphics2D
 
-        // Enable antialiasing
+        // Enable high-quality rendering
         g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
         g2d.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON)
+        g2d.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY)
+        g2d.setRenderingHint(RenderingHints.KEY_STROKE_CONTROL, RenderingHints.VALUE_STROKE_PURE)
 
-        // Draw edges first
+        // Apply zoom and pan transformation
+        val originalTransform = g2d.transform
+        g2d.translate(panX, panY)
+        g2d.scale(zoomLevel, zoomLevel)
+
+        // Draw graph
         drawEdges(g2d)
-
-        // Draw nodes
         drawNodes(g2d)
 
-        // Draw legend
+        // Restore transform for UI elements
+        g2d.transform = originalTransform
+
+        // Draw UI elements (legend, zoom indicator)
         drawLegend(g2d)
+        drawZoomIndicator(g2d)
     }
 
     /**
-     * Draw all edges
+     * Draw edges with improved styling
      */
     private fun drawEdges(g2d: Graphics2D) {
         g2d.color = EDGE_COLOR
-        g2d.stroke = BasicStroke(2f)
+        g2d.stroke = BasicStroke(2f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND)
 
         graph.edges.forEach { edge ->
             val fromPos = nodePositions[edge.from]
             val toPos = nodePositions[edge.to]
 
             if (fromPos != null && toPos != null) {
-                // Draw line
-                g2d.drawLine(fromPos.x, fromPos.y, toPos.x, toPos.y)
+                // Draw curved line for better visibility
+                val path = QuadCurve2D.Double()
+                val ctrlX = (fromPos.x + toPos.x) / 2
+                val ctrlY = (fromPos.y + toPos.y) / 2 + 20 // Slight curve
+                path.setCurve(fromPos.x, fromPos.y, ctrlX, ctrlY, toPos.x, toPos.y)
+                g2d.draw(path)
 
                 // Draw arrow head
                 drawArrowHead(g2d, fromPos, toPos)
-
-                // Draw label if present
-                edge.label?.let { label ->
-                    val midX = (fromPos.x + toPos.x) / 2
-                    val midY = (fromPos.y + toPos.y) / 2
-                    g2d.color = JBColor.foreground()
-                    g2d.font = Font("Arial", Font.PLAIN, 10)
-                    g2d.drawString(label, midX + 5, midY - 5)
-                    g2d.color = EDGE_COLOR
-                }
             }
         }
     }
 
     /**
-     * Draw arrow head at the end of an edge
+     * Draw arrow head
      */
-    private fun drawArrowHead(g2d: Graphics2D, from: Point, to: Point) {
-        val angle = kotlin.math.atan2((to.y - from.y).toDouble(), (to.x - from.x).toDouble())
-        val arrowLength = 10
-        val arrowWidth = 5
+    private fun drawArrowHead(g2d: Graphics2D, from: Point2D.Double, to: Point2D.Double) {
+        val angle = atan2(to.y - from.y, to.x - from.x)
+        val arrowLength = 12.0
+        val arrowAngle = PI / 6
 
-        val x1 = to.x - arrowLength * cos(angle - PI / 6)
-        val y1 = to.y - arrowLength * sin(angle - PI / 6)
-        val x2 = to.x - arrowLength * cos(angle + PI / 6)
-        val y2 = to.y - arrowLength * sin(angle + PI / 6)
+        val x1 = to.x - arrowLength * cos(angle - arrowAngle)
+        val y1 = to.y - arrowLength * sin(angle - arrowAngle)
+        val x2 = to.x - arrowLength * cos(angle + arrowAngle)
+        val y2 = to.y - arrowLength * sin(angle + arrowAngle)
 
-        g2d.drawLine(to.x, to.y, x1.toInt(), y1.toInt())
-        g2d.drawLine(to.x, to.y, x2.toInt(), y2.toInt())
+        val arrowHead = Path2D.Double()
+        arrowHead.moveTo(to.x, to.y)
+        arrowHead.lineTo(x1, y1)
+        arrowHead.lineTo(x2, y2)
+        arrowHead.closePath()
+
+        g2d.fill(arrowHead)
     }
 
     /**
-     * Draw all nodes
+     * Draw nodes with improved labels
      */
     private fun drawNodes(g2d: Graphics2D) {
         nodeShapes.clear()
 
-        // Draw each type of node
-        graph.components.forEach { drawNode(g2d, it, COMPONENT_COLOR, "C") }
-        graph.modules.forEach { drawNode(g2d, it, MODULE_COLOR, "M") }
-        graph.provisions.forEach { drawNode(g2d, it, PROVISION_COLOR, "P") }
-        graph.injections.forEach { drawNode(g2d, it, INJECTION_COLOR, "I") }
+        // Draw in order: edges are already drawn, now nodes on top
+        graph.components.forEach { drawNode(g2d, it, COMPONENT_COLOR) }
+        graph.modules.forEach { drawNode(g2d, it, MODULE_COLOR) }
+        graph.provisions.forEach { drawNode(g2d, it, PROVISION_COLOR) }
+        graph.injections.forEach { drawNode(g2d, it, INJECTION_COLOR) }
     }
 
     /**
-     * Draw a single node
+     * Draw a single node with improved text rendering
      */
-    private fun drawNode(g2d: Graphics2D, node: DaggerNode, color: Color, typeLabel: String) {
+    private fun drawNode(g2d: Graphics2D, node: DaggerNode, color: Color) {
         val pos = nodePositions[node] ?: return
 
+        // Create shape
         val shape = when (node) {
-            is ComponentNode -> Rectangle2D.Double(
-                (pos.x - NODE_RADIUS).toDouble(),
-                (pos.y - NODE_RADIUS).toDouble(),
-                (NODE_RADIUS * 2).toDouble(),
-                (NODE_RADIUS * 2).toDouble()
+            is ComponentNode -> RoundRectangle2D.Double(
+                pos.x - nodeRadius, pos.y - nodeRadius,
+                nodeRadius * 2, nodeRadius * 2,
+                20.0, 20.0
             )
             else -> Ellipse2D.Double(
-                (pos.x - NODE_RADIUS).toDouble(),
-                (pos.y - NODE_RADIUS).toDouble(),
-                (NODE_RADIUS * 2).toDouble(),
-                (NODE_RADIUS * 2).toDouble()
+                pos.x - nodeRadius, pos.y - nodeRadius,
+                nodeRadius * 2, nodeRadius * 2
             )
         }
 
         nodeShapes[node] = shape
 
-        // Fill shape
+        // Fill node
         g2d.color = when {
             node == selectedNode -> SELECTED_COLOR
             node == hoveredNode -> HOVER_COLOR
@@ -236,68 +352,131 @@ class DaggerGraphPanel(
         g2d.fill(shape)
 
         // Draw border
-        g2d.color = JBColor.foreground()
-        g2d.stroke = BasicStroke(2f)
+        g2d.color = when {
+            node == selectedNode -> SELECTED_COLOR.darker()
+            node == hoveredNode -> HOVER_COLOR.darker()
+            else -> color.darker()
+        }
+        g2d.stroke = BasicStroke(2.5f)
         g2d.draw(shape)
 
-        // Draw text
-        g2d.font = Font("Arial", Font.BOLD, 12)
+        // Draw label with background
+        drawNodeLabel(g2d, node, pos)
+    }
+
+    /**
+     * Draw node label with improved formatting and background
+     */
+    private fun drawNodeLabel(g2d: Graphics2D, node: DaggerNode, pos: Point2D.Double) {
+        // Get display name
+        val displayName = getNodeDisplayName(node)
+
+        // Choose font size based on zoom
+        val fontSize = (11 * min(1.2, zoomLevel)).toInt()
+        g2d.font = Font("SansSerif", Font.BOLD, fontSize)
+
         val fm = g2d.fontMetrics
-        val text = node.name
-        val textWidth = fm.stringWidth(text)
-        val textHeight = fm.height
+        val lines = smartWrapText(displayName, fm, nodeRadius * 1.8)
 
-        // Draw type label
-        g2d.drawString(typeLabel, pos.x - 5, pos.y - 10)
+        if (lines.isEmpty()) return
 
-        // Draw node name
-        g2d.font = Font("Arial", Font.PLAIN, 11)
-        val lines = wrapText(text, 15)
-        var yOffset = pos.y + textHeight / 2 - (lines.size * textHeight) / 2
+        // Calculate text block dimensions
+        val lineHeight = fm.height
+        val textBlockHeight = lines.size * lineHeight
+        val maxLineWidth = lines.maxOf { fm.stringWidth(it) }
+
+        // Draw semi-transparent background for readability
+        val textBgPadding = 4.0
+        val bgRect = Rectangle2D.Double(
+            pos.x - maxLineWidth / 2 - textBgPadding,
+            pos.y - textBlockHeight / 2 - textBgPadding,
+            maxLineWidth + textBgPadding * 2,
+            textBlockHeight + textBgPadding * 2
+        )
+        g2d.color = TEXT_BACKGROUND
+        g2d.fill(bgRect)
+
+        // Draw text
+        g2d.color = JBColor.foreground()
+        var yOffset = pos.y - textBlockHeight / 2 + fm.ascent
+
         lines.forEach { line ->
-            val lineWidth = g2d.fontMetrics.stringWidth(line)
-            g2d.drawString(line, pos.x - lineWidth / 2, yOffset)
-            yOffset += textHeight
+            val lineWidth = fm.stringWidth(line)
+            g2d.drawString(line, (pos.x - lineWidth / 2).toFloat(), yOffset.toFloat())
+            yOffset += lineHeight
         }
     }
 
     /**
-     * Wrap text to fit in node
+     * Get better display name for nodes
      */
-    private fun wrapText(text: String, maxLength: Int): List<String> {
-        if (text.length <= maxLength) return listOf(text)
+    private fun getNodeDisplayName(node: DaggerNode): String {
+        return when (node) {
+            is ProvisionNode -> {
+                // For provisions, show method name without "provide" prefix
+                val name = node.name.removePrefix("provide").removePrefix("get")
+                if (name.isNotEmpty()) name else node.name
+            }
+            is InjectionNode -> {
+                // For injections, show field name and containing class
+                "${node.containingClass.substringAfterLast('.')}.${node.name}"
+            }
+            else -> node.name
+        }
+    }
 
-        val words = text.split(" ", "_", ".")
+    /**
+     * Smart text wrapping based on pixel width
+     */
+    private fun smartWrapText(text: String, fm: FontMetrics, maxWidth: Double): List<String> {
+        if (fm.stringWidth(text) <= maxWidth) {
+            return listOf(text)
+        }
+
         val lines = mutableListOf<String>()
+        val words = text.split(Regex("(?=[A-Z])|_|\\.")).filter { it.isNotEmpty() }
         var currentLine = ""
 
-        words.forEach { word ->
-            if (currentLine.length + word.length <= maxLength) {
-                currentLine += if (currentLine.isEmpty()) word else " $word"
+        for (word in words) {
+            val testLine = if (currentLine.isEmpty()) word else "$currentLine$word"
+            if (fm.stringWidth(testLine) <= maxWidth) {
+                currentLine = testLine
             } else {
-                if (currentLine.isNotEmpty()) lines.add(currentLine)
+                if (currentLine.isNotEmpty()) {
+                    lines.add(currentLine)
+                }
                 currentLine = word
             }
         }
 
-        if (currentLine.isNotEmpty()) lines.add(currentLine)
-        return lines
+        if (currentLine.isNotEmpty()) {
+            lines.add(currentLine)
+        }
+
+        // Limit to 3 lines max
+        return if (lines.size > 3) {
+            lines.take(2) + listOf(lines.drop(2).joinToString("").take(10) + "...")
+        } else {
+            lines
+        }
     }
 
     /**
      * Draw legend
      */
     private fun drawLegend(g2d: Graphics2D) {
-        val legendX = width - 200
+        val legendX = width - 210
         val legendY = 20
 
-        g2d.color = JBColor.background()
-        g2d.fillRect(legendX - 10, legendY - 10, 190, 140)
+        // Background
+        g2d.color = JBColor(Color(255, 255, 255, 230), Color(60, 63, 65, 230))
+        g2d.fillRoundRect(legendX - 10, legendY - 10, 200, 150, 10, 10)
         g2d.color = JBColor.foreground()
-        g2d.drawRect(legendX - 10, legendY - 10, 190, 140)
+        g2d.stroke = BasicStroke(1.5f)
+        g2d.drawRoundRect(legendX - 10, legendY - 10, 200, 150, 10, 10)
 
-        g2d.font = Font("Arial", Font.BOLD, 12)
-        g2d.drawString("Legend", legendX, legendY + 10)
+        g2d.font = Font("SansSerif", Font.BOLD, 13)
+        g2d.drawString("Legend", legendX, legendY + 15)
 
         val items = listOf(
             Triple("Component", COMPONENT_COLOR, true),
@@ -306,29 +485,52 @@ class DaggerGraphPanel(
             Triple("Injection", INJECTION_COLOR, false)
         )
 
-        var y = legendY + 30
+        var y = legendY + 40
         items.forEach { (label, color, isSquare) ->
             g2d.color = color
             if (isSquare) {
-                g2d.fillRect(legendX, y - 10, 15, 15)
+                g2d.fillRoundRect(legendX, y - 12, 18, 18, 4, 4)
             } else {
-                g2d.fillOval(legendX, y - 10, 15, 15)
+                g2d.fillOval(legendX, y - 12, 18, 18)
             }
 
             g2d.color = JBColor.foreground()
-            g2d.font = Font("Arial", Font.PLAIN, 11)
-            g2d.drawString(label, legendX + 25, y + 3)
+            g2d.font = Font("SansSerif", Font.PLAIN, 12)
+            g2d.drawString(label, legendX + 30, y + 3)
 
-            y += 25
+            y += 28
         }
     }
 
     /**
-     * Handle mouse click on a node
+     * Draw zoom indicator
+     */
+    private fun drawZoomIndicator(g2d: Graphics2D) {
+        val zoomText = "Zoom: ${(zoomLevel * 100).toInt()}%"
+        g2d.font = Font("SansSerif", Font.PLAIN, 11)
+        val fm = g2d.fontMetrics
+        val textWidth = fm.stringWidth(zoomText)
+
+        val x = width - textWidth - 20
+        val y = height - 30
+
+        g2d.color = JBColor(Color(255, 255, 255, 200), Color(60, 63, 65, 200))
+        g2d.fillRoundRect(x - 8, y - fm.ascent - 4, textWidth + 16, fm.height + 8, 6, 6)
+
+        g2d.color = JBColor.foreground()
+        g2d.drawString(zoomText, x, y)
+    }
+
+    /**
+     * Handle click with zoom transformation
      */
     private fun handleClick(point: Point) {
-        val clickedNode = findNodeAtPoint(point)
+        val transformedPoint = Point2D.Double(
+            (point.x - panX) / zoomLevel,
+            (point.y - panY) / zoomLevel
+        )
 
+        val clickedNode = findNodeAtPoint(transformedPoint)
         if (clickedNode != null) {
             selectedNode = clickedNode
             navigateToSource(clickedNode)
@@ -337,15 +539,22 @@ class DaggerGraphPanel(
     }
 
     /**
-     * Handle mouse hover over a node
+     * Handle hover with zoom transformation
      */
     private fun handleHover(point: Point) {
-        val hoveredNodeNew = findNodeAtPoint(point)
+        val transformedPoint = Point2D.Double(
+            (point.x - panX) / zoomLevel,
+            (point.y - panY) / zoomLevel
+        )
 
-        if (hoveredNodeNew != hoveredNode) {
-            hoveredNode = hoveredNodeNew
-            cursor = if (hoveredNode != null) {
+        val newHoveredNode = findNodeAtPoint(transformedPoint)
+
+        if (newHoveredNode != hoveredNode) {
+            hoveredNode = newHoveredNode
+            cursor = if (hoveredNode != null && !isPanning) {
                 Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
+            } else if (isPanning) {
+                Cursor.getPredefinedCursor(Cursor.MOVE_CURSOR)
             } else {
                 Cursor.getDefaultCursor()
             }
@@ -354,34 +563,131 @@ class DaggerGraphPanel(
     }
 
     /**
-     * Find node at a given point
+     * Find node at point
      */
-    private fun findNodeAtPoint(point: Point): DaggerNode? {
+    private fun findNodeAtPoint(point: Point2D.Double): DaggerNode? {
         return nodeShapes.entries.firstOrNull { (_, shape) ->
             shape.contains(point)
         }?.key
     }
 
     /**
-     * Navigate to the source code of a node
+     * Navigate to source with line number support
      */
     private fun navigateToSource(node: DaggerNode) {
         val filePath = node.filePath ?: return
         val virtualFile = LocalFileSystem.getInstance().findFileByPath(filePath) ?: return
-        val fileEditorManager = FileEditorManager.getInstance(project)
+        val lineNumber = (node.lineNumber ?: 1) - 1 // Convert to 0-based
 
-        fileEditorManager.openFile(virtualFile, true)
+        val descriptor = OpenFileDescriptor(
+            project,
+            virtualFile,
+            lineNumber,
+            0
+        )
+        descriptor.navigate(true)
+    }
 
-        // TODO: Navigate to specific line number
-        // This requires accessing the editor and scrolling to the line
+    /**
+     * Get tooltip for node
+     */
+    override fun getToolTipText(event: MouseEvent): String? {
+        val transformedPoint = Point2D.Double(
+            (event.x - panX) / zoomLevel,
+            (event.y - panY) / zoomLevel
+        )
+
+        val node = findNodeAtPoint(transformedPoint)
+        return node?.let { buildTooltip(it) }
+    }
+
+    /**
+     * Build detailed tooltip
+     */
+    private fun buildTooltip(node: DaggerNode): String {
+        return when (node) {
+            is ComponentNode -> {
+                val modules = if (node.modules.isNotEmpty())
+                    node.modules.joinToString(", ") { it.substringAfterLast('.') }
+                else "None"
+                "<html><b>Component:</b> ${node.name}<br>" +
+                        "<b>Modules:</b> $modules<br>" +
+                        "<b>Scope:</b> ${node.scope ?: "Unscoped"}</html>"
+            }
+            is ModuleNode -> {
+                "<html><b>Module:</b> ${node.name}<br>" +
+                        "<b>Provides:</b> ${node.provides.size} dependencies</html>"
+            }
+            is ProvisionNode -> {
+                val params = node.parameters.joinToString(", ") { it.type.substringAfterLast('.') }
+                "<html><b>Provides:</b> ${node.returnType.substringAfterLast('.')}<br>" +
+                        "<b>Method:</b> ${node.name}<br>" +
+                        "${if (params.isNotEmpty()) "<b>Params:</b> $params<br>" else ""}" +
+                        "<b>Scope:</b> ${node.scope ?: "Unscoped"}</html>"
+            }
+            is InjectionNode -> {
+                "<html><b>Injection:</b> ${node.name}<br>" +
+                        "<b>Type:</b> ${node.type.substringAfterLast('.')}<br>" +
+                        "<b>Class:</b> ${node.containingClass.substringAfterLast('.')}</html>"
+            }
+        }
+    }
+
+    /**
+     * Reset view to fit all nodes
+     */
+    fun resetView() {
+        zoomLevel = 1.0
+        panX = 0.0
+        panY = 0.0
+        repaint()
+    }
+
+    /**
+     * Zoom to fit all content
+     */
+    fun zoomToFit() {
+        val contentBounds = calculateContentBounds()
+        if (contentBounds.width > 0 && contentBounds.height > 0) {
+            val xScale = (width - 100) / contentBounds.width
+            val yScale = (height - 100) / contentBounds.height
+            zoomLevel = min(xScale, yScale).coerceIn(MIN_ZOOM, MAX_ZOOM)
+
+            panX = (width - contentBounds.width * zoomLevel) / 2 - contentBounds.x * zoomLevel
+            panY = (height - contentBounds.height * zoomLevel) / 2 - contentBounds.y * zoomLevel
+
+            repaint()
+        }
+    }
+
+    /**
+     * Calculate bounding box of all content
+     */
+    private fun calculateContentBounds(): Rectangle2D.Double {
+        if (nodePositions.isEmpty()) {
+            return Rectangle2D.Double(0.0, 0.0, 0.0, 0.0)
+        }
+
+        val minX = nodePositions.values.minOf { it.x } - nodeRadius - padding
+        val minY = nodePositions.values.minOf { it.y } - nodeRadius - padding
+        val maxX = nodePositions.values.maxOf { it.x } + nodeRadius + padding
+        val maxY = nodePositions.values.maxOf { it.y } + nodeRadius + padding
+
+        return Rectangle2D.Double(minX, minY, maxX - minX, maxY - minY)
     }
 }
 
 /**
- * Create a scrollable wrapper for the graph panel
+ * Create scrollable graph panel with controls
  */
 fun createGraphScrollPane(project: Project, graph: DaggerGraph): JBScrollPane {
     val graphPanel = DaggerGraphPanel(project, graph)
+
+    // Auto zoom to fit on creation
+    javax.swing.SwingUtilities.invokeLater {
+        graphPanel.zoomToFit()
+    }
+
     return JBScrollPane(graphPanel).apply {
         horizontalScrollBarPolicy = JBScrollPane.HORIZONTAL_SCROLLBAR_AS_NEEDED
         verticalScrollBarPolicy = JBScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED
