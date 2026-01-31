@@ -11,15 +11,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Initial release of Dagger Dependency Visualizer
 - Interactive graph visualization of Dagger dependency injection
 - Support for @Component, @Module, @Provides, @Inject, @Binds annotations
-- Clickable navigation from diagram to source code
+- Clickable navigation from diagram to source code (with exact line number navigation)
 - Tool window with analysis UI
 - Keyboard shortcut (Ctrl+Alt+D / Cmd+Alt+D) for quick access
 - Context menu action for analyzing Dagger components
 - Automatic cache invalidation on file changes
 - Support for scopes (@Singleton, custom scopes)
 - Support for qualifiers (@Named, custom qualifiers)
-- Hierarchical graph layout
+- Hierarchical graph layout with dynamic spacing
 - Color-coded nodes (Components, Modules, Provisions, Injections)
+- **Mouse wheel zoom and pan** - Navigate large graphs easily (10%-300% zoom)
+- **Smart layout** - Automatically adjusts spacing for 20, 50, 100+ node graphs
+- **Improved labels** - CamelCase-aware wrapping, text backgrounds, better readability
+- **Rich tooltips** - Detailed info on hover (scope, params, modules, etc.)
+- **Auto zoom-to-fit** - Diagram automatically scales to show all content
+- **Curved edges** - Better visual flow with smooth curves and arrow heads
+- **Zoom indicator** - Real-time zoom level display
 
 ### Changed
 - Updated to IntelliJ Platform Gradle Plugin 2.1.0 for better performance
@@ -49,10 +56,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Planned
 - Java support (currently Kotlin-only)
-- Zoom and pan controls for large graphs
+- Drag-and-drop nodes for manual layout adjustment
 - Filter nodes by scope or module
 - Search functionality within diagram
 - Export diagram as image/SVG
 - Detect and highlight dependency cycles
 - Subcomponent visualization improvements
 - Multi-module project support enhancements
+- Minimap for large graph navigation
+- Highlight dependency paths on click
