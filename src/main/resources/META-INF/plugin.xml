@@ -41,6 +41,79 @@
         <!-- Project Service -->
         <projectService
                 serviceImplementation="com.daggerdiag.services.DaggerAnalysisService"/>
+
+        <!-- Notification Group -->
+        <notificationGroup id="Dagger Diagram" displayType="BALLOON"/>
+
+        <!-- Dagger Gutter Icons - Kotlin -->
+        <codeInsight.lineMarkerProvider
+                language="kotlin"
+                implementationClass="com.daggerdiag.gutter.ComponentLineMarkerProvider"/>
+        <codeInsight.lineMarkerProvider
+                language="kotlin"
+                implementationClass="com.daggerdiag.gutter.SubcomponentLineMarkerProvider"/>
+        <codeInsight.lineMarkerProvider
+                language="kotlin"
+                implementationClass="com.daggerdiag.gutter.ModuleLineMarkerProvider"/>
+        <codeInsight.lineMarkerProvider
+                language="kotlin"
+                implementationClass="com.daggerdiag.gutter.HiltAndroidAppLineMarkerProvider"/>
+        <codeInsight.lineMarkerProvider
+                language="kotlin"
+                implementationClass="com.daggerdiag.gutter.AndroidEntryPointLineMarkerProvider"/>
+        <codeInsight.lineMarkerProvider
+                language="kotlin"
+                implementationClass="com.daggerdiag.gutter.HiltViewModelLineMarkerProvider"/>
+        <codeInsight.lineMarkerProvider
+                language="kotlin"
+                implementationClass="com.daggerdiag.gutter.DefineComponentLineMarkerProvider"/>
+        <codeInsight.lineMarkerProvider
+                language="kotlin"
+                implementationClass="com.daggerdiag.gutter.MergeComponentLineMarkerProvider"/>
+        <codeInsight.lineMarkerProvider
+                language="kotlin"
+                implementationClass="com.daggerdiag.gutter.MergeSubcomponentLineMarkerProvider"/>
+        <codeInsight.lineMarkerProvider
+                language="kotlin"
+                implementationClass="com.daggerdiag.gutter.ContributesToLineMarkerProvider"/>
+        <codeInsight.lineMarkerProvider
+                language="kotlin"
+                implementationClass="com.daggerdiag.gutter.ContributesAndroidInjectorLineMarkerProvider"/>
+
+        <!-- Dagger Gutter Icons - Java -->
+        <codeInsight.lineMarkerProvider
+                language="JAVA"
+                implementationClass="com.daggerdiag.gutter.ComponentLineMarkerProvider"/>
+        <codeInsight.lineMarkerProvider
+                language="JAVA"
+                implementationClass="com.daggerdiag.gutter.SubcomponentLineMarkerProvider"/>
+        <codeInsight.lineMarkerProvider
+                language="JAVA"
+                implementationClass="com.daggerdiag.gutter.ModuleLineMarkerProvider"/>
+        <codeInsight.lineMarkerProvider
+                language="JAVA"
+                implementationClass="com.daggerdiag.gutter.HiltAndroidAppLineMarkerProvider"/>
+        <codeInsight.lineMarkerProvider
+                language="JAVA"
+                implementationClass="com.daggerdiag.gutter.AndroidEntryPointLineMarkerProvider"/>
+        <codeInsight.lineMarkerProvider
+                language="JAVA"
+                implementationClass="com.daggerdiag.gutter.HiltViewModelLineMarkerProvider"/>
+        <codeInsight.lineMarkerProvider
+                language="JAVA"
+                implementationClass="com.daggerdiag.gutter.DefineComponentLineMarkerProvider"/>
+        <codeInsight.lineMarkerProvider
+                language="JAVA"
+                implementationClass="com.daggerdiag.gutter.MergeComponentLineMarkerProvider"/>
+        <codeInsight.lineMarkerProvider
+                language="JAVA"
+                implementationClass="com.daggerdiag.gutter.MergeSubcomponentLineMarkerProvider"/>
+        <codeInsight.lineMarkerProvider
+                language="JAVA"
+                implementationClass="com.daggerdiag.gutter.ContributesToLineMarkerProvider"/>
+        <codeInsight.lineMarkerProvider
+                language="JAVA"
+                implementationClass="com.daggerdiag.gutter.ContributesAndroidInjectorLineMarkerProvider"/>
     </extensions>
 
     <!-- Declare Kotlin K2 mode compatibility -->
