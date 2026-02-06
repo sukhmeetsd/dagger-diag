@@ -49,7 +49,12 @@ class AndroidEntryPointLineMarkerProvider : DaggerLineMarkerProvider() {
     }
 
     private fun inferHiltComponentType(targetClass: UClass): String {
-        val superTypes = targetClass.supertypes.map { it.getCanonicalText() }
+        // Get superclass and interfaces from the Java PSI
+        val psiClass = targetClass.javaPsi
+        val superTypes = mutableListOf<String>()
+
+        psiClass.superClass?.qualifiedName?.let { superTypes.add(it) }
+        psiClass.interfaces.forEach { it.qualifiedName?.let { name -> superTypes.add(name) } }
 
         return when {
             superTypes.any { it.contains("Activity") } -> "ActivityComponent"

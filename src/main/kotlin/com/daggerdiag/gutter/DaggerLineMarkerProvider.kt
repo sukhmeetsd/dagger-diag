@@ -37,7 +37,7 @@ abstract class DaggerLineMarkerProvider : LineMarkerProviderDescriptor() {
     /**
      * Icon for the gutter (lazy-loaded)
      */
-    abstract fun getIcon(): Icon
+    abstract override fun getIcon(): Icon
 
     /**
      * Get the line marker info for a PSI element.
@@ -147,12 +147,13 @@ abstract class DaggerLineMarkerProvider : LineMarkerProviderDescriptor() {
         annotation: UAnnotation,
         targetClass: UClass
     ): LineMarkerInfo<PsiElement> {
+        val project = element.project
         return LineMarkerInfo(
             element,
             element.textRange,
             getIcon(),
             { getTooltipText(targetClass) },
-            { event, _ -> handleNavigation(event.project!!, targetClass, annotation) },
+            { _, _ -> handleNavigation(project, targetClass, annotation) },
             GutterIconRenderer.Alignment.LEFT,
             { getName() }
         )

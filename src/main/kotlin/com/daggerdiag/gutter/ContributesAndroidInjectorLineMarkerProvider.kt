@@ -39,13 +39,14 @@ class ContributesAndroidInjectorLineMarkerProvider : DaggerLineMarkerProvider() 
         // Get the return type (the Activity/Fragment class)
         val returnType = uMethod.returnType?.canonicalText ?: return null
         val className = returnType.substringAfterLast('.')
+        val project = element.project
 
         return LineMarkerInfo(
             element,
             element.textRange,
             getIcon(),
             { "Navigate to generated $className subcomponent" },
-            { event, _ ->
+            { _, _ ->
                 // Show notification for POC
                 com.intellij.notification.NotificationGroupManager.getInstance()
                     .getNotificationGroup("Dagger Diagram")
@@ -53,7 +54,7 @@ class ContributesAndroidInjectorLineMarkerProvider : DaggerLineMarkerProvider() 
                         "Navigating to $className subcomponent",
                         com.intellij.notification.NotificationType.INFORMATION
                     )
-                    .notify(event.project!!)
+                    .notify(project)
             },
             GutterIconRenderer.Alignment.LEFT,
             { getName() }
