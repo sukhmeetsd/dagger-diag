@@ -3,6 +3,7 @@ package com.daggerdiag.analyzers
 import com.daggerdiag.models.*
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.roots.ProjectRootManager
+import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.vfs.VfsUtilCore
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.vfs.VirtualFileVisitor
@@ -122,10 +123,18 @@ class DaggerAnalyzer(private val project: Project) {
             injections.addAll(findInjectionPointsInFile(file))
         }
 
-        // Build dependency edges (provision -> injection)
-        buildDependencyEdges(provisions, injections, edges)
+        // Filter out library injections (JAR files, no source files)
+        val navigableInjections = injections.filter { injection ->
+            injection.filePath?.let { path ->
+                // Exclude JAR files and library code
+                !path.contains(".jar!") && !path.contains("/build/") && isProjectSourceFile(path)
+            } ?: false
+        }
 
-        return DaggerGraph(components, modules, provisions, injections, edges)
+        // Build dependency edges (provision -> injection)
+        buildDependencyEdges(provisions, navigableInjections, edges)
+
+        return DaggerGraph(components, modules, provisions, navigableInjections, edges)
     }
 
     /**
@@ -591,5 +600,26 @@ class DaggerAnalyzer(private val project: Project) {
     private fun getLineNumber(element: PsiElement): Int? {
         val document = PsiDocumentManager.getInstance(project).getDocument(element.containingFile)
         return document?.getLineNumber(element.textOffset)?.plus(1)
+    }
+
+    /**
+     * Check if a file path is from project source directories (not libraries)
+     */
+    private fun isProjectSourceFile(filePath: String): Boolean {
+        val projectBasePath = project.basePath ?: return false
+        val projectRootManager = ProjectRootManager.getInstance(project)
+
+        // Check if file is within project base path
+        if (!filePath.startsWith(projectBasePath)) {
+            return false
+        }
+
+        // Check if file is in source roots
+        val virtualFile = LocalFileSystem.getInstance().findFileByPath(filePath) ?: return false
+        val isInSourceRoot = projectRootManager.fileIndex.isInSource(virtualFile)
+        val isInLibrary = projectRootManager.fileIndex.isInLibrary(virtualFile)
+
+        // Only include files that are in source roots and NOT in libraries
+        return isInSourceRoot && !isInLibrary
     }
 }
