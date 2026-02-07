@@ -28,6 +28,18 @@ class DaggerAnalyzer(private val project: Project) {
         private const val SUBCOMPONENT_ANNOTATION = "Subcomponent"
         private const val BINDS_ANNOTATION = "Binds"
 
+        // Hilt annotation names
+        private const val HILT_ANDROID_APP = "HiltAndroidApp"
+        private const val ANDROID_ENTRY_POINT = "AndroidEntryPoint"
+        private const val HILT_VIEW_MODEL = "HiltViewModel"
+        private const val DEFINE_COMPONENT = "DefineComponent"
+        private const val INSTALL_IN = "InstallIn"
+
+        // Anvil annotation names
+        private const val MERGE_COMPONENT = "MergeComponent"
+        private const val MERGE_SUBCOMPONENT = "MergeSubcomponent"
+        private const val CONTRIBUTES_TO = "ContributesTo"
+
         // Qualifier annotations
         private const val NAMED_ANNOTATION = "Named"
         private const val QUALIFIER_ANNOTATION = "Qualifier"
@@ -35,6 +47,23 @@ class DaggerAnalyzer(private val project: Project) {
         // Scope annotations
         private const val SINGLETON_ANNOTATION = "Singleton"
         private const val SCOPE_ANNOTATION = "Scope"
+
+        // Component-like annotations (Hilt, Anvil, etc.)
+        private val COMPONENT_ANNOTATIONS = setOf(
+            COMPONENT_ANNOTATION,
+            SUBCOMPONENT_ANNOTATION,
+            HILT_ANDROID_APP,
+            ANDROID_ENTRY_POINT,
+            DEFINE_COMPONENT,
+            MERGE_COMPONENT,
+            MERGE_SUBCOMPONENT
+        )
+
+        // Module-like annotations
+        private val MODULE_ANNOTATIONS = setOf(
+            MODULE_ANNOTATION,
+            CONTRIBUTES_TO
+        )
     }
 
     /**
@@ -174,7 +203,7 @@ class DaggerAnalyzer(private val project: Project) {
     }
 
     /**
-     * Find all @Component annotated classes in a file
+     * Find all @Component, @HiltAndroidApp, @AndroidEntryPoint, @MergeComponent annotated classes in a file
      */
     private fun findComponentsInFile(file: KtFile): List<ComponentNode> {
         val components = mutableListOf<ComponentNode>()
@@ -182,7 +211,8 @@ class DaggerAnalyzer(private val project: Project) {
         file.declarations.filterIsInstance<KtClass>().forEach { ktClass ->
             ktClass.annotationEntries.forEach { annotation ->
                 val annotationName = annotation.shortName?.asString()
-                if (annotationName?.contains(COMPONENT_ANNOTATION) == true) {
+                // Check if annotation is any component-like annotation
+                if (COMPONENT_ANNOTATIONS.any { annotationName?.contains(it) == true }) {
                     components.add(parseComponent(ktClass))
                 }
             }
@@ -206,7 +236,9 @@ class DaggerAnalyzer(private val project: Project) {
 
         // Extract modules from annotation
         ktClass.annotationEntries.forEach { annotation ->
-            if (annotation.shortName?.asString()?.contains(COMPONENT_ANNOTATION) == true) {
+            val annotationName = annotation.shortName?.asString()
+            // Check all component-like annotations
+            if (COMPONENT_ANNOTATIONS.any { annotationName?.contains(it) == true }) {
                 annotation.valueArguments.forEach { arg ->
                     when (arg.getArgumentName()?.asName?.asString()) {
                         "modules" -> {
@@ -231,15 +263,29 @@ class DaggerAnalyzer(private val project: Project) {
     }
 
     /**
-     * Find all @Module annotated classes in a file
+     * Find all @Module and @ContributesTo annotated classes in a file
      */
     private fun findModulesInFile(file: KtFile): List<ModuleNode> {
         val modules = mutableListOf<ModuleNode>()
 
         file.declarations.filterIsInstance<KtClass>().forEach { ktClass ->
             ktClass.annotationEntries.forEach { annotation ->
-                if (annotation.shortName?.asString()?.contains(MODULE_ANNOTATION) == true) {
+                val annotationName = annotation.shortName?.asString()
+                // Check if annotation is any module-like annotation
+                if (MODULE_ANNOTATIONS.any { annotationName?.contains(it) == true }) {
                     modules.add(parseModule(ktClass))
+                }
+            }
+        }
+
+        // Also check for object declarations (common in Kotlin modules)
+        file.declarations.filterIsInstance<KtObjectDeclaration>().forEach { ktObject ->
+            ktObject.annotationEntries.forEach { annotation ->
+                val annotationName = annotation.shortName?.asString()
+                if (MODULE_ANNOTATIONS.any { annotationName?.contains(it) == true }) {
+                    // Convert KtObjectDeclaration to KtClass for parsing
+                    // Objects are treated as singleton classes
+                    modules.add(parseModuleFromObject(ktObject))
                 }
             }
         }
@@ -261,7 +307,8 @@ class DaggerAnalyzer(private val project: Project) {
 
         // Extract includes from annotation
         ktClass.annotationEntries.forEach { annotation ->
-            if (annotation.shortName?.asString() == MODULE_ANNOTATION) {
+            val annotationName = annotation.shortName?.asString()
+            if (MODULE_ANNOTATIONS.any { annotationName?.contains(it) == true }) {
                 annotation.valueArguments.forEach { arg ->
                     if (arg.getArgumentName()?.asName?.asString() == "includes") {
                         extractClassReferences(arg.getArgumentExpression()).forEach {
@@ -283,6 +330,46 @@ class DaggerAnalyzer(private val project: Project) {
         }
 
         return ModuleNode(name, qualifiedName, ktClass, filePath, lineNumber, includes, provides)
+    }
+
+    /**
+     * Parse a @Module annotated object declaration
+     */
+    private fun parseModuleFromObject(ktObject: KtObjectDeclaration): ModuleNode {
+        val name = ktObject.name ?: "Unknown"
+        val qualifiedName = getQualifiedName(ktObject) ?: name
+        val filePath = ktObject.containingFile.virtualFile?.path
+        val lineNumber = getLineNumber(ktObject)
+
+        val includes = mutableListOf<String>()
+        val provides = mutableListOf<ProvisionNode>()
+
+        // Extract includes from annotation
+        ktObject.annotationEntries.forEach { annotation ->
+            val annotationName = annotation.shortName?.asString()
+            if (MODULE_ANNOTATIONS.any { annotationName?.contains(it) == true }) {
+                annotation.valueArguments.forEach { arg ->
+                    if (arg.getArgumentName()?.asName?.asString() == "includes") {
+                        extractClassReferences(arg.getArgumentExpression()).forEach {
+                            includes.add(it)
+                        }
+                    }
+                }
+            }
+        }
+
+        // Find all @Provides methods
+        ktObject.declarations.filterIsInstance<KtNamedFunction>().forEach { function ->
+            function.annotationEntries.forEach { annotation ->
+                val annotationName = annotation.shortName?.asString()
+                if (annotationName == PROVIDES_ANNOTATION || annotationName == BINDS_ANNOTATION) {
+                    provides.add(parseProvision(function))
+                }
+            }
+        }
+
+        // Use ktObject as the element (note: ModuleNode expects KtClass, but we can pass any PsiElement)
+        return ModuleNode(name, qualifiedName, ktObject as PsiElement, filePath, lineNumber, includes, provides)
     }
 
     /**
@@ -473,9 +560,20 @@ class DaggerAnalyzer(private val project: Project) {
                     className
                 }
             }
+            is KtObjectDeclaration -> {
+                val packageName = (element.containingFile as? KtFile)?.packageFqName?.asString()
+                val objectName = element.name
+                if (packageName != null && objectName != null) {
+                    "$packageName.$objectName"
+                } else {
+                    objectName
+                }
+            }
             is KtNamedFunction -> {
                 val containingClass = PsiTreeUtil.getParentOfType(element, KtClass::class.java)
+                val containingObject = PsiTreeUtil.getParentOfType(element, KtObjectDeclaration::class.java)
                 val classQualifiedName = containingClass?.let { getQualifiedName(it) }
+                    ?: containingObject?.let { getQualifiedName(it) }
                 val functionName = element.name
                 if (classQualifiedName != null && functionName != null) {
                     "$classQualifiedName.$functionName"
