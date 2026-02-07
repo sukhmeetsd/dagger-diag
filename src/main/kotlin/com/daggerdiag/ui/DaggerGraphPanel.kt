@@ -80,25 +80,30 @@ class DaggerGraphPanel(
                         graph.provisions.size + graph.injections.size
 
         when {
-            totalNodes > 100 -> {
-                nodeRadius = 45.0
-                horizontalSpacing = 150.0
-                verticalSpacing = 140.0
-            }
-            totalNodes > 50 -> {
+            totalNodes > 200 -> {
                 nodeRadius = 50.0
+                horizontalSpacing = 160.0
+                verticalSpacing = 150.0
+            }
+            totalNodes > 100 -> {
+                nodeRadius = 55.0
                 horizontalSpacing = 170.0
                 verticalSpacing = 160.0
             }
-            totalNodes > 20 -> {
-                nodeRadius = 55.0
+            totalNodes > 50 -> {
+                nodeRadius = 60.0
                 horizontalSpacing = 190.0
                 verticalSpacing = 170.0
             }
-            else -> {
-                nodeRadius = 60.0
-                horizontalSpacing = 220.0
+            totalNodes > 20 -> {
+                nodeRadius = 65.0
+                horizontalSpacing = 210.0
                 verticalSpacing = 180.0
+            }
+            else -> {
+                nodeRadius = 70.0
+                horizontalSpacing = 240.0
+                verticalSpacing = 200.0
             }
         }
     }
@@ -140,28 +145,40 @@ class DaggerGraphPanel(
 
         // Layer 3: Provisions (can be many - use more columns)
         if (graph.provisions.isNotEmpty()) {
-            val provisionsPerRow = max(1, min(8, ceil(sqrt(graph.provisions.size.toDouble() * 2)).toInt()))
+            // Calculate columns based on graph size - aim for roughly square layout
+            val provisionsPerRow = when {
+                graph.provisions.size > 200 -> min(20, ceil(sqrt(graph.provisions.size.toDouble() * 1.2)).toInt())
+                graph.provisions.size > 100 -> min(15, ceil(sqrt(graph.provisions.size.toDouble() * 1.3)).toInt())
+                graph.provisions.size > 50 -> min(12, ceil(sqrt(graph.provisions.size.toDouble() * 1.5)).toInt())
+                else -> min(10, ceil(sqrt(graph.provisions.size.toDouble() * 2)).toInt())
+            }
             graph.provisions.forEachIndexed { index, provision ->
                 val col = index % provisionsPerRow
                 val row = index / provisionsPerRow
-                val x = padding + col * horizontalSpacing * 0.9
-                val y = currentY + row * verticalSpacing * 0.85
+                val x = padding + col * horizontalSpacing * 0.85
+                val y = currentY + row * verticalSpacing * 0.8
                 nodePositions[provision] = Point2D.Double(x, y)
             }
-            currentY += (ceil(graph.provisions.size.toDouble() / provisionsPerRow) * verticalSpacing * 0.85) + verticalSpacing * 1.5
+            currentY += (ceil(graph.provisions.size.toDouble() / provisionsPerRow) * verticalSpacing * 0.8) + verticalSpacing * 1.5
         }
 
-        // Layer 4: Injections (bottom)
+        // Layer 4: Injections (bottom - often the most numerous)
         if (graph.injections.isNotEmpty()) {
-            val injectionsPerRow = max(1, min(8, ceil(sqrt(graph.injections.size.toDouble() * 2)).toInt()))
+            // Calculate columns based on graph size - use many more columns for large graphs
+            val injectionsPerRow = when {
+                graph.injections.size > 200 -> min(20, ceil(sqrt(graph.injections.size.toDouble() * 1.2)).toInt())
+                graph.injections.size > 100 -> min(15, ceil(sqrt(graph.injections.size.toDouble() * 1.3)).toInt())
+                graph.injections.size > 50 -> min(12, ceil(sqrt(graph.injections.size.toDouble() * 1.5)).toInt())
+                else -> min(10, ceil(sqrt(graph.injections.size.toDouble() * 2)).toInt())
+            }
             graph.injections.forEachIndexed { index, injection ->
                 val col = index % injectionsPerRow
                 val row = index / injectionsPerRow
-                val x = padding + col * horizontalSpacing * 0.9
-                val y = currentY + row * verticalSpacing * 0.85
+                val x = padding + col * horizontalSpacing * 0.85
+                val y = currentY + row * verticalSpacing * 0.8
                 nodePositions[injection] = Point2D.Double(x, y)
             }
-            currentY += (ceil(graph.injections.size.toDouble() / injectionsPerRow) * verticalSpacing * 0.85) + padding
+            currentY += (ceil(graph.injections.size.toDouble() / injectionsPerRow) * verticalSpacing * 0.8) + padding
         }
 
         // Calculate canvas size
@@ -194,19 +211,47 @@ class DaggerGraphPanel(
 
         // Mouse drag for panning
         val mouseAdapter = object : MouseAdapter() {
+            private var dragStartPoint: Point? = null
+            private var clickedOnNode = false
+
             override fun mousePressed(e: MouseEvent) {
-                if (e.button == MouseEvent.BUTTON2 || e.button == MouseEvent.BUTTON1 && e.isControlDown) {
-                    // Middle mouse or Ctrl+Left mouse for panning
+                if (e.button == MouseEvent.BUTTON2) {
+                    // Middle mouse for panning
                     isPanning = true
                     lastMousePoint = e.point
                     cursor = Cursor.getPredefinedCursor(Cursor.MOVE_CURSOR)
                 } else if (e.button == MouseEvent.BUTTON1) {
-                    // Left click for selection
-                    handleClick(e.point)
+                    // Left click - check if clicking on a node
+                    dragStartPoint = e.point
+                    val transformedPoint = Point2D.Double(
+                        (e.point.x - panX) / zoomLevel,
+                        (e.point.y - panY) / zoomLevel
+                    )
+                    clickedOnNode = findNodeAtPoint(transformedPoint) != null
+
+                    if (!clickedOnNode) {
+                        // Not on a node, prepare for panning
+                        isPanning = true
+                        lastMousePoint = e.point
+                    }
                 }
             }
 
             override fun mouseReleased(e: MouseEvent) {
+                if (e.button == MouseEvent.BUTTON1 && dragStartPoint != null) {
+                    val dx = e.point.x - dragStartPoint!!.x
+                    val dy = e.point.y - dragStartPoint!!.y
+                    val distance = sqrt((dx * dx + dy * dy).toDouble())
+
+                    // If mouse didn't move much, treat as click
+                    if (distance < 5.0 && clickedOnNode) {
+                        handleClick(e.point)
+                    }
+
+                    dragStartPoint = null
+                    clickedOnNode = false
+                }
+
                 if (isPanning) {
                     isPanning = false
                     lastMousePoint = null
@@ -223,7 +268,6 @@ class DaggerGraphPanel(
                     lastMousePoint = e.point
                     repaint()
                 }
-                // TODO: Add node dragging here in future
             }
 
             override fun mouseMoved(e: MouseEvent) {
@@ -376,7 +420,8 @@ class DaggerGraphPanel(
         g2d.font = Font("SansSerif", Font.BOLD, fontSize)
 
         val fm = g2d.fontMetrics
-        val lines = smartWrapText(displayName, fm, nodeRadius * 1.8)
+        // Increased max width from 1.8 to 2.2 times nodeRadius for better readability
+        val lines = smartWrapText(displayName, fm, nodeRadius * 2.2)
 
         if (lines.isEmpty()) return
 
@@ -453,9 +498,9 @@ class DaggerGraphPanel(
             lines.add(currentLine)
         }
 
-        // Limit to 3 lines max
-        return if (lines.size > 3) {
-            lines.take(2) + listOf(lines.drop(2).joinToString("").take(10) + "...")
+        // Limit to 4 lines max, with better truncation
+        return if (lines.size > 4) {
+            lines.take(3) + listOf(lines.drop(3).joinToString("").take(15) + "...")
         } else {
             lines
         }
