@@ -29,6 +29,8 @@ class DaggerGraphPanel(
     private val nodeShapes = mutableMapOf<DaggerNode, Shape>()
     private var hoveredNode: DaggerNode? = null
     private var selectedNode: DaggerNode? = null
+    private val highlightedEdges = mutableSetOf<DaggerEdge>()
+    private val highlightedNodes = mutableSetOf<DaggerNode>()
 
     // Zoom and pan state
     private var zoomLevel = 1.0
@@ -53,6 +55,7 @@ class DaggerGraphPanel(
         private val PROVISION_COLOR = JBColor(Color(255, 167, 38), Color(215, 127, 0))
         private val INJECTION_COLOR = JBColor(Color(239, 83, 80), Color(199, 43, 40))
         private val EDGE_COLOR = JBColor(Color(150, 150, 150, 128), Color(100, 100, 100, 128))
+        private val HIGHLIGHTED_EDGE_COLOR = JBColor(Color(255, 152, 0, 230), Color(255, 167, 38, 230))
         private val HOVER_COLOR = JBColor(Color(255, 235, 59), Color(215, 195, 19))
         private val SELECTED_COLOR = JBColor(Color(33, 150, 243), Color(13, 110, 203))
         private val TEXT_BACKGROUND = JBColor(Color(255, 255, 255, 220), Color(60, 63, 65, 220))
@@ -307,26 +310,52 @@ class DaggerGraphPanel(
     }
 
     /**
-     * Draw edges with improved styling
+     * Draw edges with improved styling and hover highlighting
      */
     private fun drawEdges(g2d: Graphics2D) {
+        // First draw normal edges
         g2d.color = EDGE_COLOR
         g2d.stroke = BasicStroke(2f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND)
 
         graph.edges.forEach { edge ->
-            val fromPos = nodePositions[edge.from]
-            val toPos = nodePositions[edge.to]
+            if (!highlightedEdges.contains(edge)) {
+                val fromPos = nodePositions[edge.from]
+                val toPos = nodePositions[edge.to]
 
-            if (fromPos != null && toPos != null) {
-                // Draw curved line for better visibility
-                val path = QuadCurve2D.Double()
-                val ctrlX = (fromPos.x + toPos.x) / 2
-                val ctrlY = (fromPos.y + toPos.y) / 2 + 20 // Slight curve
-                path.setCurve(fromPos.x, fromPos.y, ctrlX, ctrlY, toPos.x, toPos.y)
-                g2d.draw(path)
+                if (fromPos != null && toPos != null) {
+                    // Draw curved line for better visibility
+                    val path = QuadCurve2D.Double()
+                    val ctrlX = (fromPos.x + toPos.x) / 2
+                    val ctrlY = (fromPos.y + toPos.y) / 2 + 20 // Slight curve
+                    path.setCurve(fromPos.x, fromPos.y, ctrlX, ctrlY, toPos.x, toPos.y)
+                    g2d.draw(path)
 
-                // Draw arrow head
-                drawArrowHead(g2d, fromPos, toPos)
+                    // Draw arrow head
+                    drawArrowHead(g2d, fromPos, toPos)
+                }
+            }
+        }
+
+        // Then draw highlighted edges on top with different styling
+        if (highlightedEdges.isNotEmpty()) {
+            g2d.color = HIGHLIGHTED_EDGE_COLOR
+            g2d.stroke = BasicStroke(4f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND)
+
+            highlightedEdges.forEach { edge ->
+                val fromPos = nodePositions[edge.from]
+                val toPos = nodePositions[edge.to]
+
+                if (fromPos != null && toPos != null) {
+                    // Draw curved line with thicker stroke
+                    val path = QuadCurve2D.Double()
+                    val ctrlX = (fromPos.x + toPos.x) / 2
+                    val ctrlY = (fromPos.y + toPos.y) / 2 + 20
+                    path.setCurve(fromPos.x, fromPos.y, ctrlX, ctrlY, toPos.x, toPos.y)
+                    g2d.draw(path)
+
+                    // Draw larger arrow head
+                    drawArrowHead(g2d, fromPos, toPos, larger = true)
+                }
             }
         }
     }
@@ -334,9 +363,9 @@ class DaggerGraphPanel(
     /**
      * Draw arrow head
      */
-    private fun drawArrowHead(g2d: Graphics2D, from: Point2D.Double, to: Point2D.Double) {
+    private fun drawArrowHead(g2d: Graphics2D, from: Point2D.Double, to: Point2D.Double, larger: Boolean = false) {
         val angle = atan2(to.y - from.y, to.x - from.x)
-        val arrowLength = 12.0
+        val arrowLength = if (larger) 16.0 else 12.0
         val arrowAngle = PI / 6
 
         val x1 = to.x - arrowLength * cos(angle - arrowAngle)
@@ -391,6 +420,7 @@ class DaggerGraphPanel(
         g2d.color = when {
             node == selectedNode -> SELECTED_COLOR
             node == hoveredNode -> HOVER_COLOR
+            highlightedNodes.contains(node) -> color.brighter()
             else -> color
         }
         g2d.fill(shape)
@@ -399,9 +429,10 @@ class DaggerGraphPanel(
         g2d.color = when {
             node == selectedNode -> SELECTED_COLOR.darker()
             node == hoveredNode -> HOVER_COLOR.darker()
+            highlightedNodes.contains(node) -> HIGHLIGHTED_EDGE_COLOR
             else -> color.darker()
         }
-        g2d.stroke = BasicStroke(2.5f)
+        g2d.stroke = if (highlightedNodes.contains(node)) BasicStroke(3.5f) else BasicStroke(2.5f)
         g2d.draw(shape)
 
         // Draw label with background
@@ -584,7 +615,7 @@ class DaggerGraphPanel(
     }
 
     /**
-     * Handle hover with zoom transformation
+     * Handle hover with zoom transformation and path highlighting
      */
     private fun handleHover(point: Point) {
         val transformedPoint = Point2D.Double(
@@ -596,6 +627,15 @@ class DaggerGraphPanel(
 
         if (newHoveredNode != hoveredNode) {
             hoveredNode = newHoveredNode
+
+            // Update highlighted edges and nodes based on hover
+            highlightedEdges.clear()
+            highlightedNodes.clear()
+
+            if (hoveredNode != null) {
+                computeHighlightedPath(hoveredNode!!)
+            }
+
             cursor = if (hoveredNode != null && !isPanning) {
                 Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
             } else if (isPanning) {
@@ -604,6 +644,78 @@ class DaggerGraphPanel(
                 Cursor.getDefaultCursor()
             }
             repaint()
+        }
+    }
+
+    /**
+     * Compute which edges and nodes to highlight for the given node
+     */
+    private fun computeHighlightedPath(node: DaggerNode) {
+        when (node) {
+            is InjectionNode -> {
+                // For injections, highlight all provisions that flow into this injection
+                graph.edges.forEach { edge ->
+                    if (edge.to == node && edge.type == EdgeType.CONSUMES_DEPENDENCY) {
+                        highlightedEdges.add(edge)
+                        highlightedNodes.add(edge.from)
+
+                        // Also highlight edges that flow into those provisions (recursive)
+                        addUpstreamPath(edge.from)
+                    }
+                }
+            }
+            is ProvisionNode -> {
+                // For provisions, highlight all injections that consume this provision
+                graph.edges.forEach { edge ->
+                    if (edge.from == node && edge.type == EdgeType.CONSUMES_DEPENDENCY) {
+                        highlightedEdges.add(edge)
+                        highlightedNodes.add(edge.to)
+                    }
+                }
+
+                // Also highlight provisions that this provision depends on
+                graph.edges.forEach { edge ->
+                    if (edge.to == node && edge.type == EdgeType.CONSUMES_DEPENDENCY) {
+                        highlightedEdges.add(edge)
+                        highlightedNodes.add(edge.from)
+                        addUpstreamPath(edge.from)
+                    }
+                }
+            }
+            is ModuleNode -> {
+                // For modules, highlight all provisions in the module
+                graph.edges.forEach { edge ->
+                    if (edge.from == node && edge.type == EdgeType.PROVIDES_DEPENDENCY) {
+                        highlightedEdges.add(edge)
+                        highlightedNodes.add(edge.to)
+                    }
+                }
+            }
+            is ComponentNode -> {
+                // For components, highlight connected modules
+                graph.edges.forEach { edge ->
+                    if (edge.from == node && edge.type == EdgeType.COMPONENT_MODULE) {
+                        highlightedEdges.add(edge)
+                        highlightedNodes.add(edge.to)
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Recursively add upstream dependencies to the highlighted path
+     */
+    private fun addUpstreamPath(node: DaggerNode, visited: MutableSet<DaggerNode> = mutableSetOf()) {
+        if (visited.contains(node)) return
+        visited.add(node)
+
+        graph.edges.forEach { edge ->
+            if (edge.to == node && (edge.type == EdgeType.CONSUMES_DEPENDENCY || edge.type == EdgeType.PROVIDES_DEPENDENCY)) {
+                highlightedEdges.add(edge)
+                highlightedNodes.add(edge.from)
+                addUpstreamPath(edge.from, visited)
+            }
         }
     }
 
