@@ -175,31 +175,58 @@ abstract class DaggerLineMarkerProvider : LineMarkerProviderDescriptor() {
         targetClass: UClass,
         annotation: UAnnotation
     ) {
-        // Default: Show the current visualization tool window
-        // In POC, we'll just show a notification
+        // Open tool window and trigger analysis if needed
         showGraphNavigation(project, targetClass)
     }
 
     /**
-     * Show graph navigation (POC implementation)
+     * Show graph navigation
      */
     private fun showGraphNavigation(project: Project, targetClass: UClass) {
-        // For POC: Open the existing tool window
         val toolWindowManager = com.intellij.openapi.wm.ToolWindowManager.getInstance(project)
         val toolWindow = toolWindowManager.getToolWindow("Dagger Diagram")
 
         if (toolWindow != null) {
+            // Show the tool window
             toolWindow.show()
 
-            // In future: Navigate to specific component graph
-            // For now: Just show notification
-            com.intellij.notification.NotificationGroupManager.getInstance()
-                .getNotificationGroup("Dagger Diagram")
-                .createNotification(
-                    "Navigating to graph for ${targetClass.name}",
-                    com.intellij.notification.NotificationType.INFORMATION
-                )
-                .notify(project)
+            // Trigger analysis if needed
+            val analysisService = com.daggerdiag.services.DaggerAnalysisService.getInstance(project)
+            val cachedGraph = analysisService.getGraph()
+
+            if (cachedGraph == null && !analysisService.isAnalyzing()) {
+                // No cached graph, trigger analysis
+                analysisService.analyzeAsync()
+                    .thenAccept {
+                        // Notify user after analysis completes
+                        com.intellij.notification.NotificationGroupManager.getInstance()
+                            .getNotificationGroup("Dagger Diagram")
+                            .createNotification(
+                                "Graph loaded for ${targetClass.name}",
+                                com.intellij.notification.NotificationType.INFORMATION
+                            )
+                            .notify(project)
+                    }
+                    .exceptionally { throwable ->
+                        com.intellij.notification.NotificationGroupManager.getInstance()
+                            .getNotificationGroup("Dagger Diagram")
+                            .createNotification(
+                                "Failed to analyze: ${throwable.message}",
+                                com.intellij.notification.NotificationType.ERROR
+                            )
+                            .notify(project)
+                        null
+                    }
+            } else {
+                // Graph already loaded, just show notification
+                com.intellij.notification.NotificationGroupManager.getInstance()
+                    .getNotificationGroup("Dagger Diagram")
+                    .createNotification(
+                        "Showing graph for ${targetClass.name}",
+                        com.intellij.notification.NotificationType.INFORMATION
+                    )
+                    .notify(project)
+            }
         }
     }
 
