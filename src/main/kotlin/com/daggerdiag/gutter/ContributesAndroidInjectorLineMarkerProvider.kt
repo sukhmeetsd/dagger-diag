@@ -3,10 +3,7 @@ package com.daggerdiag.gutter
 import com.intellij.codeInsight.daemon.LineMarkerInfo
 import com.intellij.icons.AllIcons
 import com.intellij.openapi.editor.markup.GutterIconRenderer
-import com.intellij.openapi.project.Project
 import com.intellij.psi.PsiElement
-import org.jetbrains.uast.UAnnotation
-import org.jetbrains.uast.UClass
 import org.jetbrains.uast.UMethod
 import org.jetbrains.uast.toUElement
 import javax.swing.Icon
@@ -47,14 +44,16 @@ class ContributesAndroidInjectorLineMarkerProvider : DaggerLineMarkerProvider() 
             getIcon(),
             { "Navigate to generated $className subcomponent" },
             { _, _ ->
-                // Show notification for POC
-                com.intellij.notification.NotificationGroupManager.getInstance()
-                    .getNotificationGroup("Dagger Diagram")
-                    .createNotification(
-                        "Navigating to $className subcomponent",
-                        com.intellij.notification.NotificationType.INFORMATION
-                    )
-                    .notify(project)
+                // Open tool window and trigger analysis
+                val toolWindowManager = com.intellij.openapi.wm.ToolWindowManager.getInstance(project)
+                val toolWindow = toolWindowManager.getToolWindow("Dagger Diagram")
+                if (toolWindow != null) {
+                    toolWindow.show()
+                    val analysisService = com.daggerdiag.services.DaggerAnalysisService.getInstance(project)
+                    if (analysisService.getGraph() == null && !analysisService.isAnalyzing()) {
+                        analysisService.analyzeAsync()
+                    }
+                }
             },
             GutterIconRenderer.Alignment.LEFT,
             { getName() }
