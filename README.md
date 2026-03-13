@@ -4,7 +4,7 @@ An IntelliJ IDEA plugin that helps developers understand and navigate Dagger 2 d
 
 ## Demo
 
-![Dagger Dependency Visualizer in action](docs/demo.jpg)
+![Dagger Dependency Visualizer in action](docs/dagger-diag-demo.gif)
 
 > The plugin renders your entire Dagger graph in a side panel — components, modules, provisions, and injections with color-coded nodes. Hover over any node to highlight its dependency path; click to jump straight to the source.
 
