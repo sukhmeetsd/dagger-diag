@@ -2,14 +2,22 @@
 
 An IntelliJ IDEA plugin that helps developers understand and navigate Dagger 2 dependency injection patterns in Kotlin-based projects.
 
+## Demo
+
+![Dagger Dependency Visualizer in action](docs/demo.jpg)
+
+> The plugin renders your entire Dagger graph in a side panel — components, modules, provisions, and injections with color-coded nodes. Hover over any node to highlight its dependency path; click to jump straight to the source.
+
 ## Features
 
-- **Interactive Dependency Graph**: Visualize your entire Dagger dependency injection setup as an interactive graph
+- **Interactive Dependency Graph**: Visualize your entire Dagger 2, Hilt, and Anvil dependency injection setup as an interactive graph
+- **Hover Path Highlighting**: Hover over any node to trace its full dependency path — upstream providers and downstream consumers light up in orange
 - **Clickable Navigation**: Click on any node in the diagram to jump directly to the source code
+- **Zoom & Pan**: Scroll to zoom, drag on empty space to pan
+- **Gutter Icons**: Inline gutter icons on `@Component`, `@Module`, `@Provides`, `@Inject`, Hilt, and Anvil annotations that open the diagram
 - **Comprehensive Analysis**: Identifies all Dagger components, modules, provisions, and injection points
-- **Dependency Tracking**: Shows where dependencies are provided and where they are consumed
+- **Source-only Injections**: Library injections (from JARs) are filtered out — only navigable project-source injections are shown
 - **Real-time Updates**: Automatically invalidates cache when source files change
-- **Easy to Use**: Simple keyboard shortcut and menu actions to generate diagrams
 
 ## What It Visualizes
 
@@ -264,16 +272,12 @@ Make sure your project:
 
 ## Future Enhancements
 
-- [ ] Zoom and pan controls
 - [ ] Filter nodes by scope or module
 - [ ] Search functionality
 - [ ] Export diagram as image/SVG
 - [ ] Show dependency cycles and potential issues
-- [ ] Subcomponent visualization
 - [ ] Multi-module project support
 - [ ] Java support (currently Kotlin-only)
-- [ ] Better layout algorithms for complex graphs
-- [ ] Jump to specific line number when clicking nodes
 
 ## Contributing
 
